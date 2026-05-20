@@ -664,7 +664,10 @@ function describeAutoTradeResult(result) {
     const order = result.order || {};
     return `Submitted ${order.symbol || "paper"} order to Alpaca; waiting for fill. AI ${Math.round((result.ai?.probabilityOfSuccess || 0) * 100)}%, ${order.qty || result.risk?.shares || 0} shares at limit ${money(order.limitPrice)}.`;
   }
-  if (result.status === "no_trade") return `No trade submitted: ${title(result.reason || "no approved signal")}.`;
+  if (result.status === "no_trade") {
+    const rejected = Array.isArray(result.rejected) && result.rejected.length ? ` ${result.rejected.join("; ")}.` : "";
+    return `No trade submitted: ${title(result.reason || "no approved signal")}.${rejected}`;
+  }
   if (result.status === "paused") return "AI cycle skipped because trading is paused.";
   if (result.status === "blocked") return `AI blocked: ${result.error || "unknown error"}.`;
   return `AI cycle finished with status ${result.status}.`;

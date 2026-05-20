@@ -22,7 +22,7 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
   const marketContext = deriveMarketContext(market);
   const signals = buildSignals(market, marketContext);
 
-  const preScored = signals
+  const scoredSignals = signals
     .map((signal) => {
       const heuristic = scoreSignal(signal, marketContext);
       const risk = evaluateRisk({
@@ -34,6 +34,10 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
       });
       return { signal, heuristic, risk };
     })
+    .sort((a, b) => b.heuristic.probabilityOfSuccess - a.heuristic.probabilityOfSuccess);
+
+  const rejectedSummary = summarizeRejectedSignals(scoredSignals);
+  const preScored = scoredSignals
     .filter(({ heuristic, risk, signal }) => (
       risk.decision === "approved" &&
       heuristic.probabilityOfSuccess >= 0.5 &&
@@ -43,8 +47,11 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
     .slice(0, MAX_LLM_CANDIDATES);
 
   if (!preScored.length) {
-    appendEvent(store, "info", "AI auto trader found no risk-approved signal");
-    return { status: "no_trade", reason: "no_approved_signal" };
+    const message = rejectedSummary.length
+      ? `AI auto trader found no risk-approved signal: ${rejectedSummary.join("; ")}`
+      : "AI auto trader found no risk-approved signal";
+    appendEvent(store, "info", message);
+    return { status: "no_trade", reason: "no_approved_signal", rejected: rejectedSummary };
   }
 
   let chosen = null;
@@ -80,6 +87,14 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
     ai: chosen.ai,
     risk: chosen.risk
   };
+}
+
+function summarizeRejectedSignals(scoredSignals) {
+  return scoredSignals.slice(0, 5).map(({ signal, heuristic, risk }) => {
+    const reasons = risk.reasonCodes || risk.reasons || [];
+    const reason = reasons.length ? reasons.join(", ") : heuristic.reasonCodes?.join(", ") || "below_threshold";
+    return `${signal.symbol} ${Math.round(heuristic.probabilityOfSuccess * 100)}% ${reason}`;
+  });
 }
 
 function deriveMarketContext(market) {
