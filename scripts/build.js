@@ -5,6 +5,7 @@ const required = [
   "vercel.json",
   "api/state.js",
   "api/settings/integrations.js",
+  "api/settings/risk.js",
   "api/kill-switch.js",
   "api/auto-trade.js",
   "api/emergency/cancel-orders.js",

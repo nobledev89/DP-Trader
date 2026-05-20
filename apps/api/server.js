@@ -6,6 +6,7 @@ import { readConfig, assertLiveTradingAllowed } from "./config.js";
 import { createStore, appendEvent } from "./store.js";
 import { cancelAllAlpacaOrders, closeAllAlpacaPositions, fetchAlpacaAccount, fetchAlpacaOrders, fetchAlpacaPositions } from "./services/alpacaClient.js";
 import { configWithStoredCredentials, storedIntegrationDetail } from "./services/requestCredentials.js";
+import { configWithRiskOverrides, publicRiskSettings, sanitizeRiskOverrides } from "./services/riskSettings.js";
 import { buildSignals } from "./domain/strategyEngine.js";
 import { loadMarketSnapshot, storeMarketSnapshot } from "./domain/marketData.js";
 import { scoreSignal } from "./domain/aiScorer.js";
@@ -20,8 +21,12 @@ import {
   persistOrders,
   persistPositions,
   persistStrategySignals,
+  ensureAppSettingsTable,
   ensureIntegrationKeyTable,
+  loadAppSetting,
+  loadAppSettingStrict,
   loadIntegrationKeys,
+  saveAppSetting,
   saveIntegrationKey,
   deleteIntegrationKey
 } from "./db/persistence.js";
@@ -30,9 +35,16 @@ const config = readConfig();
 const store = createStore();
 const webRoot = join(process.cwd(), "apps", "web");
 
-bootstrapPersistedIntegrationKeys(store).catch((error) => {
-  console.warn(`Integration key bootstrap skipped: ${error.message}`);
+bootstrapPersistedState(store).catch((error) => {
+  console.warn(`State bootstrap skipped: ${error.message}`);
 });
+
+async function bootstrapPersistedState(state) {
+  await Promise.all([
+    bootstrapPersistedIntegrationKeys(state),
+    bootstrapPersistedRiskSettings(state)
+  ]);
+}
 
 async function bootstrapPersistedIntegrationKeys(state) {
   await ensureIntegrationKeyTable();
@@ -49,6 +61,31 @@ async function bootstrapPersistedIntegrationKeys(state) {
 
 async function refreshStoredIntegrationKeys(state) {
   await bootstrapPersistedIntegrationKeys(state);
+}
+
+async function bootstrapPersistedRiskSettings(state) {
+  await ensureAppSettingsTable();
+  const setting = await loadAppSetting("risk");
+  applyStoredRiskSettings(state, setting);
+}
+
+async function refreshStoredRiskSettings(state) {
+  await bootstrapPersistedRiskSettings(state);
+}
+
+async function refreshStoredRiskSettingsStrict(state) {
+  await ensureAppSettingsTable();
+  const setting = await loadAppSettingStrict("risk");
+  applyStoredRiskSettings(state, setting);
+}
+
+function applyStoredRiskSettings(state, setting) {
+  state.riskOverrides = setting?.payload || {};
+  state.riskSettingsUpdatedAt = setting?.updatedAt || null;
+}
+
+function configForState(cfg, state) {
+  return configWithStoredCredentials(configWithRiskOverrides(cfg, state), state);
 }
 
 function hasMeaningfulSecret(payload) {
@@ -74,7 +111,8 @@ export function createApp({ cfg = config, state = store } = {}) {
 async function handleApi(req, res, url, cfg, state) {
   if (req.method === "GET" && url.pathname === "/api/state") {
     await refreshStoredIntegrationKeys(state);
-    const requestConfig = configWithStoredCredentials(cfg, state);
+    await refreshStoredRiskSettings(state);
+    const requestConfig = configForState(cfg, state);
     await refreshAlpacaReadOnlyData(requestConfig, state);
     await refreshPersistedEvents(state);
     const market = await loadMarketSnapshot(requestConfig, state);
@@ -85,7 +123,7 @@ async function handleApi(req, res, url, cfg, state) {
         signal,
         account: state.account,
         state: summarizeState(state),
-        config: cfg.risk
+        config: requestConfig.risk
       });
       return { ...signal, confidence: ai.probabilityOfSuccess, ai, risk };
     });
@@ -97,7 +135,7 @@ async function handleApi(req, res, url, cfg, state) {
       market,
       signals: scoredSignals.sort((a, b) => b.confidence - a.confidence),
       risk: {
-        ...cfg.risk,
+        ...requestConfig.risk,
         killSwitch: state.killSwitch,
         liveTradingArmed: assertLiveTradingAllowed(requestConfig),
         tradingMode: requestConfig.tradingMode
@@ -119,6 +157,22 @@ async function handleApi(req, res, url, cfg, state) {
   if (req.method === "GET" && url.pathname === "/api/settings/integrations") {
     await refreshStoredIntegrationKeys(state);
     sendJson(res, 200, { integrations: publicIntegrations(cfg, state) });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/settings/risk") {
+    await refreshStoredRiskSettingsStrict(state);
+    sendJson(res, 200, { risk: publicRiskSettings(cfg, state) });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/settings/risk") {
+    const body = await readBody(req);
+    const updated = await updateRiskSettings(body, cfg, state);
+    await refreshStoredRiskSettingsStrict(state);
+    appendEvent(state, "info", "AI risk settings updated");
+    persistEvent("info", "AI risk settings updated", { updated }).catch(() => {});
+    sendJson(res, 200, { risk: publicRiskSettings(cfg, state), updated });
     return;
   }
 
@@ -144,7 +198,8 @@ async function handleApi(req, res, url, cfg, state) {
 
   if (req.method === "POST" && url.pathname === "/api/orders/simulate") {
     await refreshStoredIntegrationKeys(state);
-    const requestConfig = configWithStoredCredentials(cfg, state);
+    await refreshStoredRiskSettings(state);
+    const requestConfig = configForState(cfg, state);
     const body = await readBody(req);
     if (state.killSwitch) {
       sendJson(res, 409, { error: "Kill switch is enabled" });
@@ -156,7 +211,7 @@ async function handleApi(req, res, url, cfg, state) {
       sendJson(res, 404, { error: "Signal not found" });
       return;
     }
-    const risk = evaluateRisk({ signal, account: state.account, state: summarizeState(state), config: cfg.risk });
+    const risk = evaluateRisk({ signal, account: state.account, state: summarizeState(state), config: requestConfig.risk });
     if (risk.decision !== "approved") {
       sendJson(res, 409, { error: "Risk rejected order", risk });
       return;
@@ -183,7 +238,8 @@ async function handleApi(req, res, url, cfg, state) {
 
   if (req.method === "POST" && url.pathname === "/api/auto-trade") {
     await refreshStoredIntegrationKeys(state);
-    const requestConfig = configWithStoredCredentials(cfg, state);
+    await refreshStoredRiskSettings(state);
+    const requestConfig = configForState(cfg, state);
     try {
       await refreshAlpacaReadOnlyData(requestConfig, state);
       const result = await runAutoTradeCycle({ config: requestConfig, store: state });
@@ -199,7 +255,7 @@ async function handleApi(req, res, url, cfg, state) {
 
   if (req.method === "POST" && url.pathname === "/api/emergency/cancel-orders") {
     await refreshStoredIntegrationKeys(state);
-    const requestConfig = configWithStoredCredentials(cfg, state);
+    const requestConfig = configForState(cfg, state);
     const result = await cancelAllAlpacaOrders(requestConfig);
     state.killSwitch = true;
     appendEvent(state, "warning", "Emergency cancel all Alpaca paper orders requested");
@@ -210,7 +266,7 @@ async function handleApi(req, res, url, cfg, state) {
 
   if (req.method === "POST" && url.pathname === "/api/emergency/close-positions") {
     await refreshStoredIntegrationKeys(state);
-    const requestConfig = configWithStoredCredentials(cfg, state);
+    const requestConfig = configForState(cfg, state);
     const result = await closeAllAlpacaPositions(requestConfig);
     state.killSwitch = true;
     appendEvent(state, "warning", "Emergency close all Alpaca paper positions requested");
@@ -329,6 +385,14 @@ async function clearIntegrations(body, state) {
     removed.push(key);
   }
   return removed;
+}
+
+async function updateRiskSettings(body, cfg, state) {
+  const overrides = sanitizeRiskOverrides(body.risk || {}, cfg.risk);
+  await saveAppSetting("risk", overrides);
+  state.riskOverrides = overrides;
+  state.riskSettingsUpdatedAt = new Date().toISOString();
+  return overrides;
 }
 
 async function serveStatic(req, res, url) {

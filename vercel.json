@@ -4,6 +4,7 @@
   "rewrites": [
     { "source": "/api/state", "destination": "/api/state" },
     { "source": "/api/settings/integrations", "destination": "/api/settings/integrations" },
+    { "source": "/api/settings/risk", "destination": "/api/settings/risk" },
     { "source": "/api/kill-switch", "destination": "/api/kill-switch" },
     { "source": "/api/auto-trade", "destination": "/api/auto-trade" },
     { "source": "/api/emergency/cancel-orders", "destination": "/api/emergency/cancel-orders" },

@@ -25,6 +25,8 @@ export function createStore() {
       alphaVantage: { label: "Alpha Vantage", configured: false, updatedAt: null }
     },
     integrationSecrets: {},
+    riskOverrides: {},
+    riskSettingsUpdatedAt: null,
     events: [
       {
         severity: "info",

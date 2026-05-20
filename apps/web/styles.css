@@ -404,13 +404,15 @@ h2 { font-size: 15px; font-weight: 700; margin: 0 0 12px; padding: 16px 18px 0; 
 .log-status.warn { background: rgba(244,195,67,.14); color: var(--yellow); }
 
 .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; padding: 0 18px 16px; }
+.settings-panel { margin-top: 12px; }
+.settings-actions { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 18px 16px; }
 .emergency-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 18px 0; }
 .settings-lock { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 18px; }
 .settings-lock input {
   min-width: 240px; flex: 1; background: var(--bg-2); border: 1px solid var(--line); color: var(--text);
   border-radius: 8px; padding: 9px 11px;
 }
-.settings-form button[type="submit"] { margin: 0 18px 16px; }
+.settings-form > button[type="submit"] { margin: 0 18px 16px; }
 .settings-message {
   margin: 0 18px 16px;
   min-height: 18px;

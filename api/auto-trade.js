@@ -1,7 +1,7 @@
 import { runAutoTradeCycle } from "../apps/api/domain/autoTrader.js";
 import { persistAutoTradeCycle, persistEvent } from "../apps/api/db/persistence.js";
 import { appendEvent } from "../apps/api/store.js";
-import { configForStore, ensureBootstrap, getRuntime, refreshAlpacaReadOnlyData, refreshStoredIntegrationKeys, send } from "./_runtimeState.js";
+import { configForStore, ensureBootstrap, getRuntime, refreshAlpacaReadOnlyData, refreshStoredIntegrationKeys, refreshStoredRiskSettings, send } from "./_runtimeState.js";
 
 export default async function handler(request, response) {
   if (request.method !== "POST") {
@@ -11,6 +11,7 @@ export default async function handler(request, response) {
 
   await ensureBootstrap();
   await refreshStoredIntegrationKeys();
+  await refreshStoredRiskSettings();
   const { config, store } = getRuntime();
   const requestConfig = configForStore(config, store);
   try {

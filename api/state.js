@@ -4,7 +4,7 @@ import { evaluateRisk } from "../apps/api/domain/riskManager.js";
 import { buildSignals } from "../apps/api/domain/strategyEngine.js";
 import { loadMarketSnapshot, storeMarketSnapshot } from "../apps/api/domain/marketData.js";
 import { persistStrategySignals } from "../apps/api/db/persistence.js";
-import { configForStore, ensureBootstrap, getRuntime, refreshAlpacaReadOnlyData, refreshPersistedEvents, refreshStoredIntegrationKeys, send, summarizeState } from "./_runtimeState.js";
+import { configForStore, ensureBootstrap, getRuntime, refreshAlpacaReadOnlyData, refreshPersistedEvents, refreshStoredIntegrationKeys, refreshStoredRiskSettings, send, summarizeState } from "./_runtimeState.js";
 
 export default async function handler(request, response) {
   if (request.method !== "GET") {
@@ -14,6 +14,7 @@ export default async function handler(request, response) {
 
   await ensureBootstrap();
   await refreshStoredIntegrationKeys();
+  await refreshStoredRiskSettings();
   const { config, store } = getRuntime();
   const requestConfig = configForStore(config, store);
   await refreshAlpacaReadOnlyData(requestConfig, store);
@@ -26,7 +27,7 @@ export default async function handler(request, response) {
       signal,
       account: store.account,
       state: summarizeState(store),
-      config: config.risk
+      config: requestConfig.risk
     });
     return { ...signal, confidence: ai.probabilityOfSuccess, ai, risk };
   });
@@ -39,7 +40,7 @@ export default async function handler(request, response) {
     market,
     signals: signals.sort((a, b) => b.confidence - a.confidence),
     risk: {
-      ...config.risk,
+      ...requestConfig.risk,
       killSwitch: store.killSwitch,
       liveTradingArmed: assertLiveTradingAllowed(requestConfig),
       tradingMode: requestConfig.tradingMode

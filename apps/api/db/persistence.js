@@ -238,6 +238,55 @@ export async function deleteIntegrationKey(integration) {
   await query(`delete from integration_keys where integration = $1`, [integration]);
 }
 
+export async function ensureAppSettingsTable() {
+  if (!hasDatabase()) return;
+  await query(
+    `create table if not exists app_settings (
+       key text primary key,
+       payload jsonb not null default '{}'::jsonb,
+       updated_at timestamptz not null default now()
+     )`,
+    []
+  );
+}
+
+export async function loadAppSetting(key) {
+  try {
+    return await loadAppSettingStrict(key);
+  } catch (error) {
+    console.warn(`Postgres app_settings read skipped: ${error.message}`);
+    return null;
+  }
+}
+
+export async function loadAppSettingStrict(key) {
+  const result = await query(`select payload, updated_at from app_settings where key = $1`, [key]);
+  const row = result?.rows?.[0];
+  if (!row) return null;
+  return {
+    payload: row.payload || {},
+    updatedAt: row.updated_at?.toISOString?.() || null
+  };
+}
+
+export async function saveAppSetting(key, payload) {
+  if (!hasDatabase()) {
+    throw new Error("DATABASE_URL is required to save settings");
+  }
+  const result = await query(
+    `insert into app_settings (key, payload, updated_at)
+     values ($1, $2, now())
+     on conflict (key) do update set
+       payload = excluded.payload,
+       updated_at = now()
+     returning key`,
+    [key, payload]
+  );
+  if (!result?.rowCount) {
+    throw new Error(`Setting save failed for ${key}`);
+  }
+}
+
 export async function loadRecentEvents(limit = 100) {
   try {
     const result = await query(

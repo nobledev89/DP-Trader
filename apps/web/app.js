@@ -2,6 +2,7 @@ const pages = [...document.querySelectorAll(".page")];
 const navItems = [...document.querySelectorAll(".nav-item")];
 let state = null;
 let integrationsState = {};
+let riskSettingsState = null;
 
 let selectedSymbol = null;
 let activeFilter = "popular";
@@ -59,7 +60,9 @@ async function emergencyAction(action) {
   }
 }
 document.querySelector("#settingsForm").addEventListener("submit", saveSettings);
+document.querySelector("#riskSettingsForm").addEventListener("submit", saveRiskSettings);
 document.querySelector("#clearKeysButton").addEventListener("click", clearSavedKeys);
+document.querySelector("#resetRiskSettingsButton").addEventListener("click", resetRiskSettings);
 document.querySelector("#cancelOrdersButton").addEventListener("click", () => emergencyAction("cancel-orders"));
 document.querySelector("#closePositionsButton").addEventListener("click", () => emergencyAction("close-positions"));
 
@@ -99,14 +102,17 @@ function showPage(pageId) {
 }
 
 async function refresh() {
-  const [appState, settings] = await Promise.all([
+  const [appState, settings, riskSettings] = await Promise.all([
     fetchJson("/api/state"),
-    fetchJson("/api/settings/integrations")
+    fetchJson("/api/settings/integrations"),
+    fetchJson("/api/settings/risk")
   ]);
   state = appState;
   integrationsState = settings.integrations || {};
+  riskSettingsState = riskSettings.risk || null;
   renderState(appState);
   renderSettings(integrationsState);
+  renderRiskSettings(riskSettingsState);
   maybeRunAutoTrade();
 }
 
@@ -466,6 +472,7 @@ function renderModelBars(signals) {
 
 /* ───── Settings ───── */
 let lastIntegrationsFingerprint = null;
+let lastRiskSettingsFingerprint = null;
 
 function renderSettings(integrations) {
   const grid = document.querySelector("#settingsGrid");
@@ -506,6 +513,62 @@ function renderSettings(integrations) {
     </div>
   `;
   }).join("");
+}
+
+function renderRiskSettings(settings) {
+  const grid = document.querySelector("#riskSettingsGrid");
+  if (!grid || grid.contains(document.activeElement) || !settings) return;
+  const fingerprint = JSON.stringify(settings);
+  if (fingerprint === lastRiskSettingsFingerprint) return;
+  lastRiskSettingsFingerprint = fingerprint;
+
+  const values = settings.values || {};
+  const defaults = settings.defaults || {};
+  const fields = settings.fields || {};
+  grid.innerHTML = Object.entries(fields).map(([key, meta]) => {
+    const value = values[key] ?? defaults[key] ?? "";
+    const changed = Number(value) !== Number(defaults[key]);
+    return `
+      <div class="setting-card">
+        <label>${escapeHtml(meta.label || title(key))}<span class="${changed ? "up" : "muted"}">${changed ? "custom" : "default"}</span></label>
+        <input type="number" inputmode="decimal" min="${meta.min}" max="${meta.max}" step="${meta.step}" value="${escapeHtml(value)}" data-risk-field="${key}">
+        <small class="muted">Default ${escapeHtml(defaults[key] ?? "")}</small>
+      </div>
+    `;
+  }).join("");
+}
+
+async function saveRiskSettings(event) {
+  event.preventDefault();
+  showRiskSettingsMessage("", "");
+  const risk = {};
+  document.querySelectorAll("[data-risk-field]").forEach((input) => {
+    risk[input.dataset.riskField] = input.value;
+  });
+  try {
+    const result = await postJson("/api/settings/risk", { risk });
+    riskSettingsState = result.risk;
+    lastRiskSettingsFingerprint = null;
+    renderRiskSettings(riskSettingsState);
+    await refresh();
+    showRiskSettingsMessage("Risk controls saved. Future AI cycles use these limits.", "success");
+  } catch (error) {
+    showRiskSettingsMessage(`Could not save risk controls: ${error.message}`, "error");
+  }
+}
+
+async function resetRiskSettings() {
+  if (!riskSettingsState?.defaults) return;
+  try {
+    const result = await postJson("/api/settings/risk", { risk: riskSettingsState.defaults });
+    riskSettingsState = result.risk;
+    lastRiskSettingsFingerprint = null;
+    renderRiskSettings(riskSettingsState);
+    await refresh();
+    showRiskSettingsMessage("Risk controls reset to defaults.", "success");
+  } catch (error) {
+    showRiskSettingsMessage(`Could not reset risk controls: ${error.message}`, "error");
+  }
 }
 
 async function saveSettings(event) {
@@ -760,6 +823,13 @@ function fieldLabel(key, field) {
 
 function showSettingsMessage(message, type) {
   const element = document.querySelector("#settingsMessage");
+  if (!element) return;
+  element.textContent = message;
+  element.className = `settings-message ${type || ""}`.trim();
+}
+
+function showRiskSettingsMessage(message, type) {
+  const element = document.querySelector("#riskSettingsMessage");
   if (!element) return;
   element.textContent = message;
   element.className = `settings-message ${type || ""}`.trim();

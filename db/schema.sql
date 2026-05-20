@@ -125,3 +125,9 @@ create table if not exists integration_keys (
   payload jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
+
+create table if not exists app_settings (
+  key text primary key,
+  payload jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);

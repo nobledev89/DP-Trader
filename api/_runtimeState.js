@@ -2,15 +2,20 @@ import { readConfig } from "../apps/api/config.js";
 import { createStore, appendEvent } from "../apps/api/store.js";
 import { fetchAlpacaAccount, fetchAlpacaOrders, fetchAlpacaPositions } from "../apps/api/services/alpacaClient.js";
 import { configWithStoredCredentials, storedIntegrationDetail } from "../apps/api/services/requestCredentials.js";
+import { configWithRiskOverrides, publicRiskSettings, sanitizeRiskOverrides } from "../apps/api/services/riskSettings.js";
 import {
   loadRecentEvents,
   persistAccountSnapshot,
   persistEvent,
   persistOrders,
   persistPositions,
+  ensureAppSettingsTable,
   ensureIntegrationKeyTable,
+  loadAppSetting,
+  loadAppSettingStrict,
   loadIntegrationKeys,
   loadIntegrationKeysStrict,
+  saveAppSetting,
   saveIntegrationKey,
   deleteIntegrationKey
 } from "../apps/api/db/persistence.js";
@@ -24,8 +29,8 @@ const globalState = globalThis.__DP_TRADER_STATE__ || {
 globalThis.__DP_TRADER_STATE__ = globalState;
 
 if (!globalState.bootstrap) {
-  globalState.bootstrap = bootstrapPersistedIntegrationKeys(globalState.store).catch((error) => {
-    console.warn(`Integration key bootstrap skipped: ${error.message}`);
+  globalState.bootstrap = bootstrapPersistedState(globalState.store).catch((error) => {
+    console.warn(`State bootstrap skipped: ${error.message}`);
   });
 }
 
@@ -48,7 +53,29 @@ export async function refreshStoredIntegrationKeysStrict() {
 }
 
 export function configForStore(config, store) {
-  return configWithStoredCredentials(config, store);
+  return configWithStoredCredentials(configWithRiskOverrides(config, store), store);
+}
+
+export async function refreshStoredRiskSettings() {
+  await bootstrapPersistedRiskSettings(globalState.store);
+}
+
+export async function refreshStoredRiskSettingsStrict() {
+  await ensureAppSettingsTable();
+  const setting = await loadAppSettingStrict("risk");
+  applyStoredRiskSettings(globalState.store, setting);
+}
+
+export function riskSettingsForStore(config, store) {
+  return publicRiskSettings(config, store);
+}
+
+export async function updateRiskSettings(body, config, store) {
+  const overrides = sanitizeRiskOverrides(body.risk || {}, config.risk);
+  await saveAppSetting("risk", overrides);
+  store.riskOverrides = overrides;
+  store.riskSettingsUpdatedAt = new Date().toISOString();
+  return overrides;
 }
 
 export async function readBody(request) {
@@ -170,10 +197,23 @@ export async function clearIntegrations(body, store) {
   return removed;
 }
 
+async function bootstrapPersistedState(store) {
+  await Promise.all([
+    bootstrapPersistedIntegrationKeys(store),
+    bootstrapPersistedRiskSettings(store)
+  ]);
+}
+
 async function bootstrapPersistedIntegrationKeys(store) {
   await ensureIntegrationKeyTable();
   const stored = await loadIntegrationKeys();
   applyStoredIntegrationKeys(store, stored);
+}
+
+async function bootstrapPersistedRiskSettings(store) {
+  await ensureAppSettingsTable();
+  const setting = await loadAppSetting("risk");
+  applyStoredRiskSettings(store, setting);
 }
 
 function applyStoredIntegrationKeys(store, stored) {
@@ -190,4 +230,9 @@ function applyStoredIntegrationKeys(store, stored) {
 function hasMeaningfulSecret(payload) {
   if (!payload || typeof payload !== "object") return false;
   return Object.values(payload).some((value) => typeof value === "string" && value.trim().length > 0);
+}
+
+function applyStoredRiskSettings(store, setting) {
+  store.riskOverrides = setting?.payload || {};
+  store.riskSettingsUpdatedAt = setting?.updatedAt || null;
 }

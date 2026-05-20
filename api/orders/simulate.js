@@ -3,7 +3,7 @@ import { persistEvent, persistOrder } from "../../apps/api/db/persistence.js";
 import { evaluateRisk } from "../../apps/api/domain/riskManager.js";
 import { buildSignals, generateMarketSnapshot } from "../../apps/api/domain/strategyEngine.js";
 import { appendEvent } from "../../apps/api/store.js";
-import { getRuntime, readBody, send, summarizeState } from "../_runtimeState.js";
+import { configForStore, getRuntime, readBody, refreshStoredRiskSettings, send, summarizeState } from "../_runtimeState.js";
 
 export default async function handler(request, response) {
   if (request.method !== "POST") {
@@ -11,7 +11,9 @@ export default async function handler(request, response) {
     return;
   }
 
+  await refreshStoredRiskSettings();
   const { config, store } = getRuntime();
+  const requestConfig = configForStore(config, store);
   const body = await readBody(request);
   if (store.killSwitch) {
     send(response, 409, { error: "Kill switch is enabled" });
@@ -24,7 +26,7 @@ export default async function handler(request, response) {
     return;
   }
 
-  const risk = evaluateRisk({ signal, account: store.account, state: summarizeState(store), config: config.risk });
+  const risk = evaluateRisk({ signal, account: store.account, state: summarizeState(store), config: requestConfig.risk });
   if (risk.decision !== "approved") {
     send(response, 409, { error: "Risk rejected order", risk });
     return;

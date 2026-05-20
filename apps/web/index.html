@@ -260,6 +260,17 @@
               <div id="settingsMessage" class="settings-message" role="status" aria-live="polite"></div>
             </form>
           </div>
+          <div class="panel settings-panel">
+            <div class="section-head"><h2>AI Risk Controls</h2><span class="muted">Stored server-side in Postgres</span></div>
+            <form id="riskSettingsForm" class="settings-form">
+              <div class="settings-grid" id="riskSettingsGrid"></div>
+              <div class="settings-actions">
+                <button class="button primary" type="submit">Save Risk Controls</button>
+                <button id="resetRiskSettingsButton" class="button secondary" type="button">Reset Defaults</button>
+              </div>
+              <div id="riskSettingsMessage" class="settings-message" role="status" aria-live="polite"></div>
+            </form>
+          </div>
         </section>
       </main>
     </div>

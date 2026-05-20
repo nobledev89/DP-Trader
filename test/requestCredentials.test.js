@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { configWithStoredCredentials, storedIntegrationDetail, storedIntegrationStatus } from "../apps/api/services/requestCredentials.js";
+import { configWithRiskOverrides, sanitizeRiskOverrides } from "../apps/api/services/riskSettings.js";
 
 test("layers Postgres-stored keys onto the per-request config", () => {
   const config = {
@@ -61,4 +62,21 @@ test("reports only last four characters for stored integration fields", () => {
   assert.deepEqual(detail.alpaca.suffixes, { apiKey: "1234", secretKey: "9876" });
   assert.deepEqual(detail.openai.suffixes, { apiKey: "abcd" });
   assert.equal(JSON.stringify(detail).includes("paper-secret"), false);
+});
+
+test("layers saved risk overrides onto config", () => {
+  const config = { risk: { maxTradesPerDay: 8, maxRiskPerTradePct: 0.1 } };
+  const store = { riskOverrides: { maxTradesPerDay: 50 } };
+  const result = configWithRiskOverrides(config, store);
+
+  assert.equal(result.risk.maxTradesPerDay, 50);
+  assert.equal(result.risk.maxRiskPerTradePct, 0.1);
+});
+
+test("validates risk setting overrides", () => {
+  const defaults = { maxTradesPerDay: 8, maxSpreadPct: 0.08 };
+  assert.deepEqual(sanitizeRiskOverrides({ maxTradesPerDay: "25", maxSpreadPct: "0.08" }, defaults), {
+    maxTradesPerDay: 25
+  });
+  assert.throws(() => sanitizeRiskOverrides({ maxTradesPerDay: "-1" }, defaults), /Max trades per day/);
 });
