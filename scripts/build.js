@@ -10,10 +10,14 @@ const required = [
   "api/emergency/cancel-orders.js",
   "api/emergency/close-positions.js",
   "api/orders/simulate.js",
+  "db/schema.sql",
   "apps/web/index.html",
   "apps/web/styles.css",
   "apps/web/app.js",
-  "apps/api/server.js"
+  "apps/api/server.js",
+  "apps/api/db/postgres.js",
+  "apps/api/db/persistence.js",
+  "scripts/migrate.js"
 ];
 
 for (const file of required) {

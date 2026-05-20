@@ -1,4 +1,5 @@
 import { appendEvent } from "../apps/api/store.js";
+import { persistEvent } from "../apps/api/db/persistence.js";
 import { getRuntime, readBody, send } from "./_runtimeState.js";
 
 export default async function handler(request, response) {
@@ -11,5 +12,6 @@ export default async function handler(request, response) {
   const body = await readBody(request);
   store.killSwitch = Boolean(body.enabled);
   appendEvent(store, store.killSwitch ? "warning" : "info", store.killSwitch ? "Emergency pause enabled" : "Emergency pause cleared");
+  persistEvent(store.killSwitch ? "warning" : "info", store.killSwitch ? "Emergency pause enabled" : "Emergency pause cleared").catch(() => {});
   send(response, 200, { killSwitch: store.killSwitch });
 }

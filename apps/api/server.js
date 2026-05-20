@@ -11,6 +11,16 @@ import { loadMarketSnapshot, storeMarketSnapshot } from "./domain/marketData.js"
 import { scoreSignal } from "./domain/aiScorer.js";
 import { evaluateRisk } from "./domain/riskManager.js";
 import { runAutoTradeCycle } from "./domain/autoTrader.js";
+import {
+  persistAccountSnapshot,
+  persistAutoTradeCycle,
+  persistEvent,
+  loadRecentEvents,
+  persistOrder,
+  persistOrders,
+  persistPositions,
+  persistStrategySignals
+} from "./db/persistence.js";
 
 const config = readConfig();
 const store = createStore();
@@ -35,6 +45,7 @@ async function handleApi(req, res, url, cfg, state) {
   if (req.method === "GET" && url.pathname === "/api/state") {
     const requestConfig = configWithRequestCredentials(cfg, req.headers);
     await refreshAlpacaReadOnlyData(requestConfig, state);
+    await refreshPersistedEvents(state);
     const market = await loadMarketSnapshot(requestConfig, state);
     storeMarketSnapshot(state, market);
     const scoredSignals = buildSignals(market).map((signal) => {
@@ -47,6 +58,7 @@ async function handleApi(req, res, url, cfg, state) {
       });
       return { ...signal, confidence: ai.probabilityOfSuccess, ai, risk };
     });
+    persistStrategySignals(scoredSignals).catch(() => {});
     sendJson(res, 200, {
       account: state.account,
       positions: state.positions,
@@ -68,6 +80,7 @@ async function handleApi(req, res, url, cfg, state) {
     const body = await readBody(req);
     state.killSwitch = Boolean(body.enabled);
     appendEvent(state, state.killSwitch ? "warning" : "info", state.killSwitch ? "Emergency pause enabled" : "Emergency pause cleared");
+    persistEvent(state.killSwitch ? "warning" : "info", state.killSwitch ? "Emergency pause enabled" : "Emergency pause cleared").catch(() => {});
     sendJson(res, 200, { killSwitch: state.killSwitch });
     return;
   }
@@ -81,6 +94,7 @@ async function handleApi(req, res, url, cfg, state) {
     const body = await readBody(req);
     const result = updateIntegrations(body, state);
     appendEvent(state, "info", "Integration settings updated");
+    persistEvent("info", "Integration settings updated", { updated: result }).catch(() => {});
     sendJson(res, 200, { integrations: publicIntegrations(cfg, state), updated: result });
     return;
   }
@@ -117,6 +131,8 @@ async function handleApi(req, res, url, cfg, state) {
     };
     state.orders.unshift(order);
     appendEvent(state, "info", `Simulated paper order accepted for ${order.symbol}`);
+    persistOrder(order).catch(() => {});
+    persistEvent("info", `Simulated paper order accepted for ${order.symbol}`, { orderId: order.id }).catch(() => {});
     sendJson(res, 201, { order, risk });
     return;
   }
@@ -125,9 +141,11 @@ async function handleApi(req, res, url, cfg, state) {
     const requestConfig = configWithRequestCredentials(cfg, req.headers);
     try {
       const result = await runAutoTradeCycle({ config: requestConfig, store: state });
+      persistAutoTradeCycle(result).catch(() => {});
       sendJson(res, 200, result);
     } catch (error) {
       appendEvent(state, "warning", `AI auto trader blocked: ${error.message}`);
+      persistEvent("warning", `AI auto trader blocked: ${error.message}`).catch(() => {});
       sendJson(res, 409, { status: "blocked", error: error.message });
     }
     return;
@@ -138,6 +156,7 @@ async function handleApi(req, res, url, cfg, state) {
     const result = await cancelAllAlpacaOrders(requestConfig);
     state.killSwitch = true;
     appendEvent(state, "warning", "Emergency cancel all Alpaca paper orders requested");
+    persistEvent("warning", "Emergency cancel all Alpaca paper orders requested").catch(() => {});
     sendJson(res, 200, { status: "cancel_requested", result });
     return;
   }
@@ -147,11 +166,22 @@ async function handleApi(req, res, url, cfg, state) {
     const result = await closeAllAlpacaPositions(requestConfig);
     state.killSwitch = true;
     appendEvent(state, "warning", "Emergency close all Alpaca paper positions requested");
+    persistEvent("warning", "Emergency close all Alpaca paper positions requested").catch(() => {});
     sendJson(res, 200, { status: "close_requested", result });
     return;
   }
 
   sendJson(res, 404, { error: "Not found" });
+}
+
+async function refreshPersistedEvents(state) {
+  const persisted = await loadRecentEvents(100);
+  if (!persisted.length) return;
+  const seen = new Set(state.events.map((event) => `${event.createdAt}|${event.message}`));
+  state.events = [
+    ...state.events,
+    ...persisted.filter((event) => !seen.has(`${event.createdAt}|${event.message}`))
+  ].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).slice(0, 100);
 }
 
 async function refreshAlpacaReadOnlyData(cfg, state) {
@@ -164,8 +194,14 @@ async function refreshAlpacaReadOnlyData(cfg, state) {
     if (account) state.account = account;
     if (positions) state.positions = positions;
     if (orders) state.orders = orders;
+    await Promise.all([
+      persistAccountSnapshot(account),
+      persistPositions(positions),
+      persistOrders(orders)
+    ]);
   } catch (error) {
     appendEvent(state, "warning", error.message);
+    persistEvent("warning", error.message).catch(() => {});
   }
 }
 

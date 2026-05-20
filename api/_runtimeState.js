@@ -2,6 +2,7 @@ import { readConfig } from "../apps/api/config.js";
 import { createStore, appendEvent } from "../apps/api/store.js";
 import { fetchAlpacaAccount, fetchAlpacaOrders, fetchAlpacaPositions } from "../apps/api/services/alpacaClient.js";
 import { configWithRequestCredentials, requestIntegrationStatus } from "../apps/api/services/requestCredentials.js";
+import { loadRecentEvents, persistAccountSnapshot, persistEvent, persistOrders, persistPositions } from "../apps/api/db/persistence.js";
 
 const globalState = globalThis.__DP_TRADER_STATE__ || {
   store: createStore(),
@@ -38,9 +39,25 @@ export async function refreshAlpacaReadOnlyData(config, store) {
     if (account) store.account = account;
     if (positions) store.positions = positions;
     if (orders) store.orders = orders;
+    await Promise.all([
+      persistAccountSnapshot(account),
+      persistPositions(positions),
+      persistOrders(orders)
+    ]);
   } catch (error) {
     appendEvent(store, "warning", error.message);
+    persistEvent("warning", error.message).catch(() => {});
   }
+}
+
+export async function refreshPersistedEvents(store) {
+  const persisted = await loadRecentEvents(100);
+  if (!persisted.length) return;
+  const seen = new Set(store.events.map((event) => `${event.createdAt}|${event.message}`));
+  store.events = [
+    ...store.events,
+    ...persisted.filter((event) => !seen.has(`${event.createdAt}|${event.message}`))
+  ].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).slice(0, 100);
 }
 
 export function summarizeState(store) {

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { persistEvent, persistOrder } from "../../apps/api/db/persistence.js";
 import { evaluateRisk } from "../../apps/api/domain/riskManager.js";
 import { buildSignals, generateMarketSnapshot } from "../../apps/api/domain/strategyEngine.js";
 import { appendEvent } from "../../apps/api/store.js";
@@ -43,5 +44,7 @@ export default async function handler(request, response) {
   };
   store.orders.unshift(order);
   appendEvent(store, "info", `Simulated paper order accepted for ${order.symbol}`);
+  persistOrder(order).catch(() => {});
+  persistEvent("info", `Simulated paper order accepted for ${order.symbol}`, { orderId: order.id }).catch(() => {});
   send(response, 201, { order, risk });
 }

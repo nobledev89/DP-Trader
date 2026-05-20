@@ -1,4 +1,5 @@
 import { closeAllAlpacaPositions } from "../../apps/api/services/alpacaClient.js";
+import { persistEvent } from "../../apps/api/db/persistence.js";
 import { appendEvent } from "../../apps/api/store.js";
 import { configForRequest, getRuntime, send } from "../_runtimeState.js";
 
@@ -14,9 +15,11 @@ export default async function handler(request, response) {
     const result = await closeAllAlpacaPositions(requestConfig);
     store.killSwitch = true;
     appendEvent(store, "warning", "Emergency close all Alpaca paper positions requested");
+    persistEvent("warning", "Emergency close all Alpaca paper positions requested").catch(() => {});
     send(response, 200, { status: "close_requested", result });
   } catch (error) {
     appendEvent(store, "warning", `Emergency close blocked: ${error.message}`);
+    persistEvent("warning", `Emergency close blocked: ${error.message}`).catch(() => {});
     send(response, 409, { status: "blocked", error: error.message });
   }
 }
