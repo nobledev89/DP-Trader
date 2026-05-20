@@ -402,9 +402,10 @@ function renderSettings(integrations) {
 
 async function saveSettings(event) {
   event.preventDefault();
+  showSettingsMessage("", "");
   const passphrase = document.querySelector("#vaultPassphrase").value;
   if (!passphrase) {
-    alert("Enter a vault passphrase before saving keys.");
+    showSettingsMessage("Enter a vault passphrase before saving keys.", "error");
     return;
   }
   const integrations = {};
@@ -413,17 +414,26 @@ async function saveSettings(event) {
     integrations[input.dataset.integration] ||= {};
     integrations[input.dataset.integration][input.dataset.field] = input.value.trim();
   });
-  const nextIntegrations = mergeSecrets(unlockedIntegrations, integrations);
-  if (integrations.alpaca && (!nextIntegrations.alpaca?.apiKey || !nextIntegrations.alpaca?.secretKey)) {
-    alert("Alpaca needs both API Key ID and Secret Key. Enter both fields before saving Alpaca.");
+  if (!Object.keys(integrations).length) {
+    showSettingsMessage("Enter at least one key before saving.", "error");
     return;
   }
-  unlockedIntegrations = nextIntegrations;
-  await saveEncryptedVault(passphrase, unlockedIntegrations);
-  vaultUnlocked = true;
-  event.target.reset();
-  document.querySelector("#vaultPassphrase").value = passphrase;
-  await refresh();
+  const nextIntegrations = mergeSecrets(unlockedIntegrations, integrations);
+  if (integrations.alpaca && (!nextIntegrations.alpaca?.apiKey || !nextIntegrations.alpaca?.secretKey)) {
+    showSettingsMessage("Alpaca needs both API Key ID and Secret Key. Enter both fields before saving Alpaca.", "error");
+    return;
+  }
+  try {
+    unlockedIntegrations = nextIntegrations;
+    const savedMode = await saveBrowserVault(passphrase, unlockedIntegrations);
+    vaultUnlocked = true;
+    event.target.reset();
+    document.querySelector("#vaultPassphrase").value = passphrase;
+    await refresh();
+    showSettingsMessage(savedMode === "encrypted" ? "Saved to encrypted browser vault." : "Saved to browser vault. This browser does not support encrypted storage here.", "success");
+  } catch (error) {
+    showSettingsMessage(`Could not save keys: ${error.message}`, "error");
+  }
 }
 
 async function fetchJson(url) {
@@ -456,11 +466,12 @@ async function unlockVault() {
     return;
   }
   try {
-    unlockedIntegrations = await decryptVault(passphrase, JSON.parse(stored));
+    unlockedIntegrations = await readBrowserVault(passphrase, JSON.parse(stored));
     vaultUnlocked = true;
     await refresh();
+    showSettingsMessage("Browser vault unlocked.", "success");
   } catch {
-    alert("Could not unlock the saved key vault. Check the passphrase.");
+    showSettingsMessage("Could not unlock the saved key vault. Check the passphrase.", "error");
   }
 }
 
@@ -470,6 +481,7 @@ async function clearVault() {
   vaultUnlocked = false;
   document.querySelector("#vaultPassphrase").value = "";
   await refresh();
+  showSettingsMessage("Saved browser keys cleared.", "success");
 }
 
 function credentialHeaders() {
@@ -511,8 +523,11 @@ function mergeSecrets(current, next) {
 }
 
 async function saveEncryptedVault(passphrase, integrations) {
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const iv = crypto.getRandomValues(new Uint8Array(12));
+  if (!globalThis.crypto?.subtle) {
+    throw new Error("Web Crypto is unavailable");
+  }
+  const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveVaultKey(passphrase, salt);
   const encrypted = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
@@ -521,6 +536,7 @@ async function saveEncryptedVault(passphrase, integrations) {
   );
   localStorage.setItem(vaultKey, JSON.stringify({
     version: 1,
+    mode: "encrypted",
     salt: toBase64(salt),
     iv: toBase64(iv),
     data: toBase64(new Uint8Array(encrypted))
@@ -528,6 +544,9 @@ async function saveEncryptedVault(passphrase, integrations) {
 }
 
 async function decryptVault(passphrase, vault) {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error("Web Crypto is unavailable");
+  }
   const salt = fromBase64(vault.salt);
   const iv = fromBase64(vault.iv);
   const key = await deriveVaultKey(passphrase, salt);
@@ -539,15 +558,40 @@ async function decryptVault(passphrase, vault) {
   return JSON.parse(new TextDecoder().decode(decrypted));
 }
 
+async function saveBrowserVault(passphrase, integrations) {
+  try {
+    await saveEncryptedVault(passphrase, integrations);
+    return "encrypted";
+  } catch {
+    localStorage.setItem(vaultKey, JSON.stringify({
+      version: 1,
+      mode: "browser",
+      passphraseHash: await weakPassphraseHash(passphrase),
+      data: toBase64(new TextEncoder().encode(JSON.stringify(integrations)))
+    }));
+    return "browser";
+  }
+}
+
+async function readBrowserVault(passphrase, vault) {
+  if (vault.mode === "browser") {
+    if (vault.passphraseHash !== await weakPassphraseHash(passphrase)) {
+      throw new Error("Invalid passphrase");
+    }
+    return JSON.parse(new TextDecoder().decode(fromBase64(vault.data)));
+  }
+  return decryptVault(passphrase, vault);
+}
+
 async function deriveVaultKey(passphrase, salt) {
-  const baseKey = await crypto.subtle.importKey(
+  const baseKey = await globalThis.crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(passphrase),
     "PBKDF2",
     false,
     ["deriveKey"]
   );
-  return crypto.subtle.deriveKey(
+  return globalThis.crypto.subtle.deriveKey(
     { name: "PBKDF2", salt, iterations: 250000, hash: "SHA-256" },
     baseKey,
     { name: "AES-GCM", length: 256 },
@@ -558,6 +602,25 @@ async function deriveVaultKey(passphrase, salt) {
 
 function toBase64(bytes) { return btoa(String.fromCharCode(...bytes)); }
 function fromBase64(value) { return Uint8Array.from(atob(value), (char) => char.charCodeAt(0)); }
+
+async function weakPassphraseHash(passphrase) {
+  if (globalThis.crypto?.subtle) {
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(passphrase));
+    return toBase64(new Uint8Array(digest));
+  }
+  let hash = 0;
+  for (let index = 0; index < passphrase.length; index += 1) {
+    hash = ((hash << 5) - hash + passphrase.charCodeAt(index)) | 0;
+  }
+  return String(hash);
+}
+
+function showSettingsMessage(message, type) {
+  const element = document.querySelector("#settingsMessage");
+  if (!element) return;
+  element.textContent = message;
+  element.className = `settings-message ${type || ""}`.trim();
+}
 
 function setText(selector, value) {
   const element = document.querySelector(selector);
