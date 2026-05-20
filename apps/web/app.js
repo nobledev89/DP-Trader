@@ -465,8 +465,21 @@ function renderModelBars(signals) {
 }
 
 /* ───── Settings ───── */
+let lastIntegrationsFingerprint = null;
+
 function renderSettings(integrations) {
   const grid = document.querySelector("#settingsGrid");
+  if (grid.contains(document.activeElement)) return;
+  const fingerprint = JSON.stringify(
+    Object.entries(integrations).map(([key, integration]) => [
+      key,
+      integration.configured,
+      integration.source,
+      integration.updatedAt || null
+    ])
+  );
+  if (fingerprint === lastIntegrationsFingerprint) return;
+  lastIntegrationsFingerprint = fingerprint;
   grid.innerHTML = Object.entries(integrations).map(([key, integration]) => {
     const configured = Boolean(integration.configured);
     const sourceLabel = configured ? (integration.source === "environment" ? "env" : "saved") : "missing";
