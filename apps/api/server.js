@@ -5,6 +5,7 @@ import { basename, extname, join, normalize } from "node:path";
 import { readConfig, assertLiveTradingAllowed } from "./config.js";
 import { createStore, appendEvent } from "./store.js";
 import { fetchAlpacaAccount, fetchAlpacaPositions } from "./services/alpacaClient.js";
+import { configWithRequestCredentials, requestIntegrationStatus } from "./services/requestCredentials.js";
 import { generateMarketSnapshot, buildSignals } from "./domain/strategyEngine.js";
 import { scoreSignal } from "./domain/aiScorer.js";
 import { evaluateRisk } from "./domain/riskManager.js";
@@ -30,7 +31,8 @@ export function createApp({ cfg = config, state = store } = {}) {
 
 async function handleApi(req, res, url, cfg, state) {
   if (req.method === "GET" && url.pathname === "/api/state") {
-    await refreshAlpacaReadOnlyData(cfg, state);
+    const requestConfig = configWithRequestCredentials(cfg, req.headers);
+    await refreshAlpacaReadOnlyData(requestConfig, state);
     const market = generateMarketSnapshot();
     const scoredSignals = buildSignals(market).map((signal) => {
       const ai = scoreSignal(signal, { spyTrend: "up" });
@@ -51,8 +53,8 @@ async function handleApi(req, res, url, cfg, state) {
       risk: {
         ...cfg.risk,
         killSwitch: state.killSwitch,
-        liveTradingArmed: assertLiveTradingAllowed(cfg),
-        tradingMode: cfg.tradingMode
+        liveTradingArmed: assertLiveTradingAllowed(requestConfig),
+        tradingMode: requestConfig.tradingMode
       },
       events: state.events
     });
@@ -68,7 +70,7 @@ async function handleApi(req, res, url, cfg, state) {
   }
 
   if (req.method === "GET" && url.pathname === "/api/settings/integrations") {
-    sendJson(res, 200, { integrations: publicIntegrations(cfg, state) });
+    sendJson(res, 200, { integrations: publicIntegrations(cfg, state, requestIntegrationStatus(cfg, req.headers)) });
     return;
   }
 
@@ -144,7 +146,7 @@ function summarizeState(state) {
   };
 }
 
-function publicIntegrations(cfg, state) {
+function publicIntegrations(cfg, state, requestConfigured = {}) {
   const configuredFromEnv = {
     alpaca: Boolean(cfg.alpaca.key && cfg.alpaca.secret),
     openai: Boolean(process.env.OPENAI_API_KEY),
@@ -159,8 +161,8 @@ function publicIntegrations(cfg, state) {
     key,
     {
       ...integration,
-      configured: Boolean(integration.configured || configuredFromEnv[key]),
-      source: configuredFromEnv[key] ? "environment" : integration.configured ? "session" : "missing"
+      configured: Boolean(integration.configured || configuredFromEnv[key] || requestConfigured[key]),
+      source: configuredFromEnv[key] ? "environment" : requestConfigured[key] ? "browser" : integration.configured ? "session" : "missing"
     }
   ]));
 }

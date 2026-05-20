@@ -2,6 +2,9 @@ const pages = [...document.querySelectorAll(".page")];
 const navItems = [...document.querySelectorAll(".nav-item")];
 const pageTitle = document.querySelector("#pageTitle");
 let state = null;
+let unlockedIntegrations = {};
+let vaultUnlocked = false;
+const vaultKey = "dpTraderEncryptedIntegrations";
 
 const integrationFields = {
   alpaca: ["apiKey", "secretKey"],
@@ -22,6 +25,8 @@ document.querySelector("#killSwitchButton").addEventListener("click", async () =
   await refresh();
 });
 document.querySelector("#settingsForm").addEventListener("submit", saveSettings);
+document.querySelector("#unlockVaultButton").addEventListener("click", unlockVault);
+document.querySelector("#clearVaultButton").addEventListener("click", clearVault);
 
 function showPage(pageId) {
   pages.forEach((page) => page.classList.toggle("active", page.id === pageId));
@@ -136,6 +141,10 @@ function renderModelBars(signals) {
 
 function renderSettings(integrations) {
   const grid = document.querySelector("#settingsGrid");
+  const saved = Boolean(localStorage.getItem(vaultKey));
+  const vaultStatus = document.querySelector("#vaultStatus");
+  vaultStatus.textContent = vaultUnlocked ? "Unlocked" : saved ? "Saved locked vault" : "No saved vault";
+  vaultStatus.className = vaultUnlocked ? "pill safe" : "pill danger-pill";
   grid.innerHTML = Object.entries(integrations).map(([key, integration]) => `
     <div class="setting-card">
       <label>${integration.label}<span class="${integration.configured ? "up" : "down"}">${integration.source}</span></label>
@@ -148,19 +157,27 @@ function renderSettings(integrations) {
 
 async function saveSettings(event) {
   event.preventDefault();
+  const passphrase = document.querySelector("#vaultPassphrase").value;
+  if (!passphrase) {
+    alert("Enter a vault passphrase before saving keys.");
+    return;
+  }
   const integrations = {};
   document.querySelectorAll("[data-integration]").forEach((input) => {
     if (!input.value.trim()) return;
     integrations[input.dataset.integration] ||= {};
     integrations[input.dataset.integration][input.dataset.field] = input.value.trim();
   });
-  await postJson("/api/settings/integrations", { integrations });
+  unlockedIntegrations = mergeSecrets(unlockedIntegrations, integrations);
+  await saveEncryptedVault(passphrase, unlockedIntegrations);
+  vaultUnlocked = true;
   event.target.reset();
+  document.querySelector("#vaultPassphrase").value = passphrase;
   await refresh();
 }
 
 async function fetchJson(url) {
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: credentialHeaders() });
   if (!response.ok) throw new Error(await response.text());
   return response.json();
 }
@@ -168,11 +185,117 @@ async function fetchJson(url) {
 async function postJson(url, body) {
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...credentialHeaders() },
     body: JSON.stringify(body)
   });
   if (!response.ok) throw new Error(await response.text());
   return response.json();
+}
+
+async function unlockVault() {
+  const passphrase = document.querySelector("#vaultPassphrase").value;
+  if (!passphrase) {
+    alert("Enter the passphrase you used when saving the vault.");
+    return;
+  }
+  const stored = localStorage.getItem(vaultKey);
+  if (!stored) {
+    vaultUnlocked = true;
+    unlockedIntegrations = {};
+    await refresh();
+    return;
+  }
+  try {
+    unlockedIntegrations = await decryptVault(passphrase, JSON.parse(stored));
+    vaultUnlocked = true;
+    await refresh();
+  } catch {
+    alert("Could not unlock the saved key vault. Check the passphrase.");
+  }
+}
+
+async function clearVault() {
+  localStorage.removeItem(vaultKey);
+  unlockedIntegrations = {};
+  vaultUnlocked = false;
+  document.querySelector("#vaultPassphrase").value = "";
+  await refresh();
+}
+
+function credentialHeaders() {
+  if (!vaultUnlocked) return {};
+  return {
+    ...(unlockedIntegrations.alpaca?.apiKey ? { "X-DPT-Alpaca-Key": unlockedIntegrations.alpaca.apiKey } : {}),
+    ...(unlockedIntegrations.alpaca?.secretKey ? { "X-DPT-Alpaca-Secret": unlockedIntegrations.alpaca.secretKey } : {}),
+    ...(unlockedIntegrations.openai?.apiKey ? { "X-DPT-OpenAI-Key": unlockedIntegrations.openai.apiKey } : {}),
+    ...(unlockedIntegrations.anthropic?.apiKey ? { "X-DPT-Anthropic-Key": unlockedIntegrations.anthropic.apiKey } : {}),
+    ...(unlockedIntegrations.polygon?.apiKey ? { "X-DPT-Polygon-Key": unlockedIntegrations.polygon.apiKey } : {}),
+    ...(unlockedIntegrations.finnhub?.apiKey ? { "X-DPT-Finnhub-Key": unlockedIntegrations.finnhub.apiKey } : {}),
+    ...(unlockedIntegrations.twelveData?.apiKey ? { "X-DPT-Twelve-Data-Key": unlockedIntegrations.twelveData.apiKey } : {}),
+    ...(unlockedIntegrations.alphaVantage?.apiKey ? { "X-DPT-Alpha-Vantage-Key": unlockedIntegrations.alphaVantage.apiKey } : {})
+  };
+}
+
+function mergeSecrets(current, next) {
+  const merged = structuredClone(current || {});
+  for (const [integration, fields] of Object.entries(next)) {
+    merged[integration] = { ...(merged[integration] || {}), ...fields };
+  }
+  return merged;
+}
+
+async function saveEncryptedVault(passphrase, integrations) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveVaultKey(passphrase, salt);
+  const encrypted = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    new TextEncoder().encode(JSON.stringify(integrations))
+  );
+  localStorage.setItem(vaultKey, JSON.stringify({
+    version: 1,
+    salt: toBase64(salt),
+    iv: toBase64(iv),
+    data: toBase64(new Uint8Array(encrypted))
+  }));
+}
+
+async function decryptVault(passphrase, vault) {
+  const salt = fromBase64(vault.salt);
+  const iv = fromBase64(vault.iv);
+  const key = await deriveVaultKey(passphrase, salt);
+  const decrypted = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    key,
+    fromBase64(vault.data)
+  );
+  return JSON.parse(new TextDecoder().decode(decrypted));
+}
+
+async function deriveVaultKey(passphrase, salt) {
+  const baseKey = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(passphrase),
+    "PBKDF2",
+    false,
+    ["deriveKey"]
+  );
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations: 250000, hash: "SHA-256" },
+    baseKey,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+function toBase64(bytes) {
+  return btoa(String.fromCharCode(...bytes));
+}
+
+function fromBase64(value) {
+  return Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
 }
 
 function setText(selector, value) {

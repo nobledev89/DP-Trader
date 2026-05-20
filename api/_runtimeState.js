@@ -1,6 +1,7 @@
 import { readConfig } from "../apps/api/config.js";
 import { createStore, appendEvent } from "../apps/api/store.js";
 import { fetchAlpacaAccount, fetchAlpacaPositions } from "../apps/api/services/alpacaClient.js";
+import { configWithRequestCredentials, requestIntegrationStatus } from "../apps/api/services/requestCredentials.js";
 
 const globalState = globalThis.__DP_TRADER_STATE__ || {
   store: createStore(),
@@ -11,6 +12,10 @@ globalThis.__DP_TRADER_STATE__ = globalState;
 
 export function getRuntime() {
   return globalState;
+}
+
+export function configForRequest(config, request) {
+  return configWithRequestCredentials(config, request.headers || {});
 }
 
 export async function readBody(request) {
@@ -49,7 +54,8 @@ export function summarizeState(store) {
   };
 }
 
-export function publicIntegrations(config, store) {
+export function publicIntegrations(config, store, request = null) {
+  const requestConfigured = request ? requestIntegrationStatus(config, request.headers || {}) : {};
   const configuredFromEnv = {
     alpaca: Boolean(config.alpaca.key && config.alpaca.secret),
     openai: Boolean(process.env.OPENAI_API_KEY),
@@ -64,8 +70,8 @@ export function publicIntegrations(config, store) {
     key,
     {
       ...integration,
-      configured: Boolean(integration.configured || configuredFromEnv[key]),
-      source: configuredFromEnv[key] ? "environment" : integration.configured ? "session" : "missing"
+      configured: Boolean(integration.configured || configuredFromEnv[key] || requestConfigured[key]),
+      source: configuredFromEnv[key] ? "environment" : requestConfigured[key] ? "browser" : integration.configured ? "session" : "missing"
     }
   ]));
 }

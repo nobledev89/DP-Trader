@@ -2,7 +2,7 @@ import { assertLiveTradingAllowed } from "../apps/api/config.js";
 import { scoreSignal } from "../apps/api/domain/aiScorer.js";
 import { evaluateRisk } from "../apps/api/domain/riskManager.js";
 import { buildSignals, generateMarketSnapshot } from "../apps/api/domain/strategyEngine.js";
-import { getRuntime, refreshAlpacaReadOnlyData, send, summarizeState } from "./_runtimeState.js";
+import { configForRequest, getRuntime, refreshAlpacaReadOnlyData, send, summarizeState } from "./_runtimeState.js";
 
 export default async function handler(request, response) {
   if (request.method !== "GET") {
@@ -11,7 +11,8 @@ export default async function handler(request, response) {
   }
 
   const { config, store } = getRuntime();
-  await refreshAlpacaReadOnlyData(config, store);
+  const requestConfig = configForRequest(config, request);
+  await refreshAlpacaReadOnlyData(requestConfig, store);
   const market = generateMarketSnapshot();
   const signals = buildSignals(market).map((signal) => {
     const ai = scoreSignal(signal, { spyTrend: "up" });
@@ -33,8 +34,8 @@ export default async function handler(request, response) {
     risk: {
       ...config.risk,
       killSwitch: store.killSwitch,
-      liveTradingArmed: assertLiveTradingAllowed(config),
-      tradingMode: config.tradingMode
+      liveTradingArmed: assertLiveTradingAllowed(requestConfig),
+      tradingMode: requestConfig.tradingMode
     },
     events: store.events
   });

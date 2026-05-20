@@ -5,7 +5,7 @@ export default async function handler(request, response) {
   const { config, store } = getRuntime();
 
   if (request.method === "GET") {
-    send(response, 200, { integrations: publicIntegrations(config, store) });
+    send(response, 200, { integrations: publicIntegrations(config, store, request) });
     return;
   }
 
@@ -13,7 +13,7 @@ export default async function handler(request, response) {
     const body = await readBody(request);
     const updated = updateIntegrations(body, store);
     appendEvent(store, "info", "Integration settings updated");
-    send(response, 200, { integrations: publicIntegrations(config, store), updated });
+    send(response, 200, { integrations: publicIntegrations(config, store, request), updated });
     return;
   }
 
