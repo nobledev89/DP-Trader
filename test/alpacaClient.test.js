@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { alpacaApiRoot, assertPaperTradingEndpoint, cancelAllAlpacaOrders, closeAllAlpacaPositions, fetchAlpacaAccount, fetchAlpacaLatestMarket } from "../apps/api/services/alpacaClient.js";
+import { alpacaApiRoot, assertPaperTradingEndpoint, cancelAllAlpacaOrders, closeAllAlpacaPositions, fetchAlpacaAccount, fetchAlpacaLatestMarket, marketableLimitPrice } from "../apps/api/services/alpacaClient.js";
 
 test("normalizes Alpaca paper base URL with or without v2 suffix", () => {
   assert.equal(alpacaApiRoot({ alpaca: { baseUrl: "https://paper-api.alpaca.markets" } }), "https://paper-api.alpaca.markets/v2");
@@ -79,4 +79,9 @@ test("can request emergency Alpaca position close", async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("uses a small marketable limit offset for paper entry orders", () => {
+  assert.equal(marketableLimitPrice({ direction: "long", entryPrice: 100 }), 100.1);
+  assert.equal(marketableLimitPrice({ direction: "short", entryPrice: 100 }), 99.9);
 });

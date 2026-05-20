@@ -2,7 +2,7 @@ import { scoreSignal } from "./aiScorer.js";
 import { evaluateRisk } from "./riskManager.js";
 import { loadMarketSnapshot } from "./marketData.js";
 import { buildSignals } from "./strategyEngine.js";
-import { submitAlpacaBracketOrder } from "../services/alpacaClient.js";
+import { marketableLimitPrice, submitAlpacaBracketOrder } from "../services/alpacaClient.js";
 import { appendEvent } from "../store.js";
 
 const MIN_AUTO_CONFIDENCE = 0.62;
@@ -43,7 +43,7 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
   const alpacaOrder = await submitAlpacaBracketOrder(config, candidate.signal, candidate.risk);
   const order = normalizeAutoOrder(alpacaOrder, candidate);
   store.orders.unshift(order);
-  appendEvent(store, "info", `AI auto trader submitted Alpaca paper order for ${order.symbol}`);
+  appendEvent(store, "info", `AI submitted Alpaca paper order for ${order.symbol}; waiting for fill`);
   return {
     status: "submitted",
     order,
@@ -85,11 +85,13 @@ function normalizeAutoOrder(alpacaOrder, candidate) {
     side: candidate.signal.direction === "long" ? "buy" : "sell",
     qty: candidate.risk.shares,
     type: "alpaca_paper_bracket",
-    limitPrice: candidate.signal.entryPrice,
+    limitPrice: Number(alpacaOrder.limit_price || marketableLimitPrice(candidate.signal)),
     stopPrice: candidate.signal.stopPrice,
     targetPrice: candidate.signal.targetPrice,
     status: alpacaOrder.status || "submitted",
     createdAt: alpacaOrder.created_at || new Date().toISOString(),
+    filledQty: Number(alpacaOrder.filled_qty || 0),
+    filledAvgPrice: Number(alpacaOrder.filled_avg_price || 0),
     aiConfidence: candidate.ai.probabilityOfSuccess,
     expectedR: candidate.ai.expectedR
   };

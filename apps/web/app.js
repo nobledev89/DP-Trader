@@ -423,11 +423,11 @@ function renderOpenTrades(positions) {
 function renderOrders(orders) {
   const mergedOrders = mergeOrders(readLocalOrders(), orders);
   document.querySelector("#ordersTable").innerHTML = mergedOrders.length ? `
-    <div class="row header"><span>Symbol</span><span>Side</span><span>Qty</span><span>Limit</span><span>Status</span><span>Created</span></div>
+    <div class="row order-row header"><span>Symbol</span><span>Side</span><span>Qty</span><span>Filled</span><span>Limit</span><span>Status</span><span>Created</span></div>
     ${mergedOrders.map((order) => `
-      <div class="row">
+      <div class="row order-row">
         <strong>${order.symbol}</strong><span>${order.side}</span><span>${order.qty}</span>
-        <span>${money(order.limitPrice)}</span><span>${order.status}</span><span>${time(order.createdAt)}</span>
+        <span>${order.filledQty || 0}</span><span>${money(order.limitPrice)}</span><span>${statusLabel(order)}</span><span>${time(order.createdAt)}</span>
       </div>
     `).join("")}
   ` : `<p class="body-copy">No paper orders yet. AI will add Alpaca paper orders here after submission.</p>`;
@@ -697,12 +697,19 @@ function restoreSessionVault() {
 function describeAutoTradeResult(result) {
   if (result.status === "submitted") {
     const order = result.order || {};
-    return `Submitted ${order.symbol || "paper"} bracket order to Alpaca. AI ${Math.round((result.ai?.probabilityOfSuccess || 0) * 100)}%, ${order.qty || result.risk?.shares || 0} shares at ${money(order.limitPrice)}.`;
+    return `Submitted ${order.symbol || "paper"} order to Alpaca; waiting for fill. AI ${Math.round((result.ai?.probabilityOfSuccess || 0) * 100)}%, ${order.qty || result.risk?.shares || 0} shares at limit ${money(order.limitPrice)}.`;
   }
   if (result.status === "no_trade") return `No trade submitted: ${title(result.reason || "no approved signal")}.`;
   if (result.status === "paused") return "AI cycle skipped because trading is paused.";
   if (result.status === "blocked") return `AI blocked: ${result.error || "unknown error"}.`;
   return `AI cycle finished with status ${result.status}.`;
+}
+
+function statusLabel(order) {
+  if ((order.filledQty || 0) > 0) return `${order.status} (${order.filledQty} filled)`;
+  if (["new", "accepted", "pending_new", "held"].includes(order.status)) return `${order.status} (waiting)`;
+  if (order.status === "canceled") return "canceled (no fill)";
+  return order.status || "unknown";
 }
 
 function saveLocalOrder(order) {
@@ -753,7 +760,7 @@ function renderAiLogs() {
 function orderLogMeta(log) {
   const order = log.details?.order;
   if (!order) return "";
-  return ` | ${escapeHtml(order.symbol)} ${escapeHtml(order.side)} ${order.qty} @ ${money(order.limitPrice)} | ${escapeHtml(order.status)} | Order ${escapeHtml(order.id)}`;
+  return ` | ${escapeHtml(order.symbol)} ${escapeHtml(order.side)} ${order.qty} @ ${money(order.limitPrice)} | ${escapeHtml(statusLabel(order))} | Order ${escapeHtml(order.id)}`;
 }
 
 function setAiTraderStatus(status, detail) {

@@ -102,13 +102,14 @@ export async function submitAlpacaBracketOrder(config, signal, risk) {
     throw new Error("Alpaca paper credentials are missing");
   }
 
+  const limitPrice = marketableLimitPrice(signal);
   const payload = {
     symbol: signal.symbol,
     qty: String(risk.shares),
     side: signal.direction === "long" ? "buy" : "sell",
     type: "limit",
     time_in_force: "day",
-    limit_price: String(signal.entryPrice),
+    limit_price: String(limitPrice),
     order_class: "bracket",
     take_profit: {
       limit_price: String(signal.targetPrice)
@@ -133,6 +134,11 @@ export async function submitAlpacaBracketOrder(config, signal, risk) {
     throw new Error(message);
   }
   return body;
+}
+
+export function marketableLimitPrice(signal) {
+  const multiplier = signal.direction === "long" ? 1.001 : 0.999;
+  return Number((signal.entryPrice * multiplier).toFixed(2));
 }
 
 export async function cancelAllAlpacaOrders(config) {
