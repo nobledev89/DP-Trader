@@ -698,6 +698,10 @@ async function maybeRunAutoTrade() {
 
 function logAiActivity(status, message, details) {
   const last = aiLogs[0];
+  if (status === "paused" && message === "Pause button is active. AI cycle skipped." && aiLogs.some((log) => log.status === status && log.message === message)) {
+    setAiTraderStatus(title(status), message);
+    return;
+  }
   if (last?.status === status && last?.message === message && Date.now() - Date.parse(last.createdAt) < 15000) {
     setAiTraderStatus(title(status), message);
     return;
