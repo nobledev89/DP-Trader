@@ -1,12 +1,25 @@
 const pages = [...document.querySelectorAll(".page")];
 const navItems = [...document.querySelectorAll(".nav-item")];
-const pageTitle = document.querySelector("#pageTitle");
 let state = null;
 let unlockedIntegrations = {};
 let vaultUnlocked = false;
 const vaultKey = "dpTraderEncryptedIntegrations";
 
+let selectedSymbol = null;
+let activeFilter = "popular";
+let activeInterval = "15m";
+
 const integrationFields = {
+  alpaca: ["apiKey", "secretKey"],
+  openai: ["apiKey"],
+  anthropic: ["apiKey"],
+  polygon: ["apiKey"],
+  finnhub: ["apiKey"],
+  twelveData: ["apiKey"],
+  alphaVantage: ["apiKey"]
+};
+
+const integrationRequirements = {
   alpaca: ["apiKey", "secretKey"],
   openai: ["apiKey"],
   anthropic: ["apiKey"],
@@ -28,10 +41,39 @@ document.querySelector("#settingsForm").addEventListener("submit", saveSettings)
 document.querySelector("#unlockVaultButton").addEventListener("click", unlockVault);
 document.querySelector("#clearVaultButton").addEventListener("click", clearVault);
 
+document.querySelectorAll("#instrumentTabs .tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll("#instrumentTabs .tab").forEach((t) => t.classList.toggle("active", t === tab));
+    activeFilter = tab.dataset.filter;
+    if (state) renderWatchlist(state.market);
+  });
+});
+
+document.querySelectorAll("#intervalGroup .interval").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#intervalGroup .interval").forEach((b) => b.classList.toggle("active", b === btn));
+    activeInterval = btn.dataset.interval;
+    if (state && selectedSymbol) {
+      const bar = state.market.find((b) => b.symbol === selectedSymbol);
+      if (bar) renderChart(bar);
+    }
+  });
+});
+
+document.querySelector(".btn-trade").addEventListener("click", async () => {
+  if (!selectedSymbol) return;
+  try {
+    await postJson("/api/orders/simulate", { symbol: selectedSymbol });
+    await refresh();
+    showPage("orders");
+  } catch (err) {
+    alert("Order rejected: " + err.message);
+  }
+});
+
 function showPage(pageId) {
   pages.forEach((page) => page.classList.toggle("active", page.id === pageId));
   navItems.forEach((item) => item.classList.toggle("active", item.dataset.page === pageId));
-  pageTitle.textContent = navItems.find((item) => item.dataset.page === pageId)?.textContent || "Overview";
 }
 
 async function refresh() {
@@ -46,6 +88,7 @@ async function refresh() {
 
 function renderState(data) {
   setText("#equity", money(data.account.equity));
+  setText("#accountChipEquity", money(data.account.equity));
   setText("#dayPnl", money(data.account.dayPnl));
   document.querySelector("#dayPnl").className = data.account.dayPnl >= 0 ? "up" : "down";
   setText("#openPositions", String(data.positions.length));
@@ -53,31 +96,231 @@ function renderState(data) {
   setText("#riskState", data.risk.killSwitch ? "Paused" : "Ready");
   setText("#riskLimits", `${data.risk.maxRiskPerTradePct}% risk/trade, ${data.risk.maxDailyLossPct}% daily stop`);
   setText("#modeLabel", data.risk.tradingMode.toUpperCase());
+
   const liveGuard = document.querySelector("#liveGuard");
   liveGuard.textContent = data.risk.liveTradingArmed ? "Live armed" : "Live blocked";
   liveGuard.className = data.risk.liveTradingArmed ? "pill danger-pill" : "pill safe";
-  const killButton = document.querySelector("#killSwitchButton");
-  killButton.textContent = data.risk.killSwitch ? "Resume Paper Trading" : "Pause Trading";
 
-  renderMarket(data.market);
+  const killButton = document.querySelector("#killSwitchButton");
+  killButton.classList.toggle("active", data.risk.killSwitch);
+  killButton.title = data.risk.killSwitch ? "Resume paper trading" : "Pause trading";
+
+  renderWatchlist(data.market);
   renderSignals(data.signals);
   renderOrders(data.orders);
-  renderEvents(data.events);
+  renderNews(data.events);
   renderRiskRules(data.risk);
   renderModelBars(data.signals);
 }
 
-function renderMarket(market) {
-  document.querySelector("#marketGrid").innerHTML = market.map((bar) => `
-    <article class="market-card">
-      <span class="muted">${bar.symbol}</span>
-      <strong>${money(bar.price)}</strong>
-      <span class="${bar.changePct >= 0 ? "up" : "down"}">${bar.changePct}%</span>
-      <small class="muted">RVOL ${bar.relativeVolume} | spread ${bar.spreadPct}%</small>
-    </article>
-  `).join("");
+/* ───── Watchlist ───── */
+function filterMarket(market) {
+  const arr = [...market];
+  switch (activeFilter) {
+    case "rising": return arr.filter((b) => b.changePct >= 0).sort((a, b) => b.changePct - a.changePct);
+    case "falling": return arr.filter((b) => b.changePct < 0).sort((a, b) => a.changePct - b.changePct);
+    case "crypto": return arr.filter((b) => /BTC|ETH|SOL|DOGE|XRP|ADA|AVAX/i.test(b.symbol));
+    case "quantity": return arr.sort((a, b) => (b.relativeVolume || 0) - (a.relativeVolume || 0));
+    case "trending": return arr.sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct));
+    case "conservative": return arr.filter((b) => Math.abs(b.changePct) < 1).sort((a, b) => (a.spreadPct || 0) - (b.spreadPct || 0));
+    default: return arr;
+  }
 }
 
+const iconPalette = ["#f7931a", "#627eea", "#26a17b", "#2962ff", "#f4c343", "#1ec479", "#9b59b6", "#ff6b6b", "#5a8dee", "#e84393"];
+function symbolIconColor(symbol) {
+  let h = 0;
+  for (const c of symbol) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return iconPalette[h % iconPalette.length];
+}
+
+function renderWatchlist(market) {
+  const list = filterMarket(market);
+  if (!list.length) {
+    document.querySelector("#watchlist").innerHTML = `<div style="padding:18px;color:var(--muted);font-size:12px;">No instruments match this filter.</div>`;
+    if (selectedSymbol) renderChartEmpty();
+    return;
+  }
+  if (!selectedSymbol || !list.find((b) => b.symbol === selectedSymbol)) {
+    selectedSymbol = list[0].symbol;
+  }
+  document.querySelector("#watchlist").innerHTML = list.map((bar) => {
+    const up = bar.changePct >= 0;
+    const initials = bar.symbol.slice(0, Math.min(3, bar.symbol.length));
+    return `
+      <div class="wl-row${bar.symbol === selectedSymbol ? " active" : ""}" data-symbol="${bar.symbol}">
+        <div class="wl-symbol">
+          <span class="wl-icon" style="background:${symbolIconColor(bar.symbol)}">${initials.slice(0,1)}</span>
+          <span class="wl-name">${bar.symbol}</span>
+        </div>
+        <span class="wl-price">${money(bar.price)}</span>
+        <span class="wl-change ${up ? "up" : "down"}">${up ? "+" : ""}${bar.changePct.toFixed(2)}%</span>
+      </div>
+    `;
+  }).join("");
+  document.querySelectorAll("#watchlist .wl-row").forEach((row) => {
+    row.addEventListener("click", () => {
+      selectedSymbol = row.dataset.symbol;
+      document.querySelectorAll("#watchlist .wl-row").forEach((r) => r.classList.toggle("active", r === row));
+      const bar = market.find((b) => b.symbol === selectedSymbol);
+      if (bar) renderChart(bar);
+    });
+  });
+  const bar = market.find((b) => b.symbol === selectedSymbol);
+  if (bar) renderChart(bar);
+}
+
+/* ───── Candlestick chart (synthetic, deterministic per symbol+interval) ───── */
+function seededRand(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+function hashString(s) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h;
+}
+
+function generateCandles(symbol, endPrice, changePct, interval, count = 64) {
+  const startPrice = endPrice / (1 + changePct / 100);
+  const seed = hashString(symbol + ":" + interval);
+  const rand = seededRand(seed);
+  const vol = Math.max(0.004, Math.abs(changePct) / 100 * 0.6 + 0.006);
+  const candles = [];
+  let prevClose = startPrice;
+  for (let i = 0; i < count; i++) {
+    const t = i / (count - 1);
+    const trend = startPrice + (endPrice - startPrice) * t;
+    const noise = (rand() - 0.5) * startPrice * vol * 2;
+    let close = trend + noise;
+    if (i === count - 1) close = endPrice;
+    const open = prevClose;
+    const wickHigh = Math.max(open, close) + rand() * startPrice * vol;
+    const wickLow = Math.min(open, close) - rand() * startPrice * vol;
+    candles.push({ open, close, high: wickHigh, low: wickLow });
+    prevClose = close;
+  }
+  return candles;
+}
+
+function renderChartEmpty() {
+  const svg = document.querySelector("#candleChart");
+  svg.innerHTML = "";
+  setText("#chartSymbol", "—");
+  setText("#chartPrice", "$0.00");
+  const chg = document.querySelector("#chartChange");
+  chg.textContent = "+0.00%"; chg.className = "chart-change up";
+}
+
+function renderChart(bar) {
+  setText("#chartSymbol", bar.symbol);
+  setText("#chartPrice", money(bar.price));
+  const chg = document.querySelector("#chartChange");
+  const up = bar.changePct >= 0;
+  chg.textContent = `${up ? "+" : ""}${bar.changePct.toFixed(2)}%`;
+  chg.className = `chart-change ${up ? "up" : "down"}`;
+
+  const candles = generateCandles(bar.symbol, bar.price, bar.changePct, activeInterval);
+  drawCandles(candles, bar);
+
+  const lo = Math.min(...candles.map((c) => c.low));
+  const hi = Math.max(...candles.map((c) => c.high));
+  setText("#priceLow", money(lo));
+  setText("#priceHigh", money(hi));
+  const span = hi - lo || 1;
+  const pos = ((bar.price - lo) / span) * 100;
+  document.querySelector("#priceMarker").style.left = `${Math.max(2, Math.min(98, pos))}%`;
+  setText("#priceChangeLabel", activeInterval === "1d" ? "Day" : activeInterval === "4h" ? "Day" : activeInterval === "1h" ? "Week" : "Week");
+
+  // Sentiment derived from signal confidence and direction if available
+  const signal = state?.signals?.find((s) => s.symbol === bar.symbol);
+  let buyPct = 50;
+  if (signal) {
+    const c = signal.confidence ?? 0.5;
+    buyPct = signal.direction === "long" ? Math.round(50 + c * 40) : Math.round(50 - c * 40);
+  } else {
+    buyPct = Math.round(50 + bar.changePct * 4);
+  }
+  buyPct = Math.max(8, Math.min(92, buyPct));
+  const sellPct = 100 - buyPct;
+  document.querySelector("#sentimentBuy").style.width = `${buyPct}%`;
+  document.querySelector("#sentimentSell").style.width = `${sellPct}%`;
+  setText("#buyPct", `${buyPct}%`);
+  setText("#sellPct", `${sellPct}%`);
+  setText("#sentimentLabel", buyPct > 60 ? "Bullish" : buyPct < 40 ? "Bearish" : "Mixed");
+}
+
+function drawCandles(candles, bar) {
+  const svg = document.querySelector("#candleChart");
+  const W = 1000, H = 420;
+  const padL = 8, padR = 64, padT = 18, padB = 22;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const lows = candles.map((c) => c.low);
+  const highs = candles.map((c) => c.high);
+  const lo = Math.min(...lows);
+  const hi = Math.max(...highs);
+  const range = (hi - lo) || 1;
+  const padPrice = range * 0.08;
+  const yMin = lo - padPrice;
+  const yMax = hi + padPrice;
+  const yScale = (p) => padT + (1 - (p - yMin) / (yMax - yMin)) * innerH;
+  const stepX = innerW / candles.length;
+  const candleW = Math.max(2, stepX * 0.62);
+
+  const gridLines = 5;
+  let grid = "";
+  for (let i = 0; i <= gridLines; i++) {
+    const y = padT + (innerH * i) / gridLines;
+    const price = yMax - ((yMax - yMin) * i) / gridLines;
+    grid += `<line class="grid-line" x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + innerW}" y2="${y.toFixed(1)}"/>`;
+    grid += `<text class="axis-label" x="${padL + innerW + 6}" y="${(y + 3).toFixed(1)}">${price.toFixed(price > 100 ? 0 : 2)}</text>`;
+  }
+
+  let candleEls = "";
+  candles.forEach((c, i) => {
+    const x = padL + i * stepX + (stepX - candleW) / 2;
+    const cx = x + candleW / 2;
+    const up = c.close >= c.open;
+    const cls = up ? "candle-up" : "candle-down";
+    const yOpen = yScale(c.open);
+    const yClose = yScale(c.close);
+    const yHigh = yScale(c.high);
+    const yLow = yScale(c.low);
+    const top = Math.min(yOpen, yClose);
+    const bodyH = Math.max(1, Math.abs(yClose - yOpen));
+    candleEls += `<line class="wick ${cls}" x1="${cx.toFixed(1)}" y1="${yHigh.toFixed(1)}" x2="${cx.toFixed(1)}" y2="${yLow.toFixed(1)}"/>`;
+    candleEls += `<rect class="${cls}" x="${x.toFixed(1)}" y="${top.toFixed(1)}" width="${candleW.toFixed(1)}" height="${bodyH.toFixed(1)}"/>`;
+  });
+
+  // current price marker
+  const yNow = yScale(bar.price);
+  const priceText = money(bar.price);
+  const labelW = Math.max(40, priceText.length * 6 + 10);
+  const priceLine = `
+    <line class="price-line" x1="${padL}" y1="${yNow.toFixed(1)}" x2="${padL + innerW}" y2="${yNow.toFixed(1)}"/>
+    <rect class="price-label-bg" x="${(padL + innerW + 2).toFixed(1)}" y="${(yNow - 8).toFixed(1)}" width="${labelW}" height="16" rx="3"/>
+    <text class="price-label-text" x="${(padL + innerW + 6).toFixed(1)}" y="${(yNow + 4).toFixed(1)}">${priceText}</text>
+  `;
+
+  svg.innerHTML = grid + candleEls + priceLine;
+}
+
+/* ───── News / events ───── */
+function renderNews(events) {
+  const items = (events || []).slice(0, 4);
+  document.querySelector("#newsList").innerHTML = items.length
+    ? items.map((e) => `<div class="news-item"><span>${escapeHtml(e.message)}</span><small>${time(e.createdAt)}</small></div>`).join("")
+    : `<div class="news-item"><span class="muted">No system events yet.</span></div>`;
+}
+
+/* ───── Signals / orders / strategy / model (preserved) ───── */
 function renderSignals(signals) {
   document.querySelector("#signalsTable").innerHTML = `
     <div class="row header"><span>Symbol</span><span>Strategy</span><span>AI Score</span><span>Entry</span><span>Risk</span><span>Action</span></div>
@@ -113,12 +356,6 @@ function renderOrders(orders) {
   ` : `<p class="body-copy">No paper orders yet. Approved signals can be simulated from Live Signals.</p>`;
 }
 
-function renderEvents(events) {
-  document.querySelector("#eventsList").innerHTML = events.map((event) => `
-    <div class="event"><span>${event.message}</span><small class="muted">${time(event.createdAt)}</small></div>
-  `).join("");
-}
-
 function renderRiskRules(risk) {
   document.querySelector("#riskRules").innerHTML = [
     ["Max risk per trade", `${risk.maxRiskPerTradePct}%`],
@@ -139,20 +376,28 @@ function renderModelBars(signals) {
   `).join("");
 }
 
+/* ───── Settings (preserved) ───── */
 function renderSettings(integrations) {
   const grid = document.querySelector("#settingsGrid");
   const saved = Boolean(localStorage.getItem(vaultKey));
   const vaultStatus = document.querySelector("#vaultStatus");
   vaultStatus.textContent = vaultUnlocked ? "Unlocked" : saved ? "Saved locked vault" : "No saved vault";
   vaultStatus.className = vaultUnlocked ? "pill safe" : "pill danger-pill";
-  grid.innerHTML = Object.entries(integrations).map(([key, integration]) => `
+  grid.innerHTML = Object.entries(integrations).map(([key, integration]) => {
+    const local = localIntegrationStatus(key);
+    const configured = local.configured || integration.configured;
+    const source = local.configured ? "browser" : integration.source;
+    const hint = local.missing.length ? `Missing ${local.missing.map(title).join(", ")}` : "Ready when vault is unlocked";
+    return `
     <div class="setting-card">
-      <label>${integration.label}<span class="${integration.configured ? "up" : "down"}">${integration.source}</span></label>
+      <label>${integration.label}<span class="${configured ? "up" : "down"}">${source}</span></label>
       ${(integrationFields[key] || ["apiKey"]).map((field) => `
-        <input autocomplete="off" type="password" placeholder="${title(field)}" data-integration="${key}" data-field="${field}">
+        <input autocomplete="off" type="password" placeholder="${fieldPlaceholder(key, field)}" data-integration="${key}" data-field="${field}">
       `).join("")}
+      <small class="muted">${hint}</small>
     </div>
-  `).join("");
+  `;
+  }).join("");
 }
 
 async function saveSettings(event) {
@@ -168,7 +413,12 @@ async function saveSettings(event) {
     integrations[input.dataset.integration] ||= {};
     integrations[input.dataset.integration][input.dataset.field] = input.value.trim();
   });
-  unlockedIntegrations = mergeSecrets(unlockedIntegrations, integrations);
+  const nextIntegrations = mergeSecrets(unlockedIntegrations, integrations);
+  if (integrations.alpaca && (!nextIntegrations.alpaca?.apiKey || !nextIntegrations.alpaca?.secretKey)) {
+    alert("Alpaca needs both API Key ID and Secret Key. Enter both fields before saving Alpaca.");
+    return;
+  }
+  unlockedIntegrations = nextIntegrations;
   await saveEncryptedVault(passphrase, unlockedIntegrations);
   vaultUnlocked = true;
   event.target.reset();
@@ -236,6 +486,22 @@ function credentialHeaders() {
   };
 }
 
+function localIntegrationStatus(key) {
+  const required = integrationRequirements[key] || ["apiKey"];
+  const saved = unlockedIntegrations[key] || {};
+  const missing = vaultUnlocked ? required.filter((field) => !saved[field]) : required;
+  return {
+    configured: vaultUnlocked && missing.length === 0,
+    missing
+  };
+}
+
+function fieldPlaceholder(key, field) {
+  if (key === "alpaca" && field === "apiKey") return "Alpaca API Key ID";
+  if (key === "alpaca" && field === "secretKey") return "Alpaca Secret Key";
+  return title(field);
+}
+
 function mergeSecrets(current, next) {
   const merged = structuredClone(current || {});
   for (const [integration, fields] of Object.entries(next)) {
@@ -290,16 +556,12 @@ async function deriveVaultKey(passphrase, salt) {
   );
 }
 
-function toBase64(bytes) {
-  return btoa(String.fromCharCode(...bytes));
-}
-
-function fromBase64(value) {
-  return Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
-}
+function toBase64(bytes) { return btoa(String.fromCharCode(...bytes)); }
+function fromBase64(value) { return Uint8Array.from(atob(value), (char) => char.charCodeAt(0)); }
 
 function setText(selector, value) {
-  document.querySelector(selector).textContent = value;
+  const element = document.querySelector(selector);
+  if (element) element.textContent = value;
 }
 function money(value) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value || 0);
@@ -309,6 +571,9 @@ function time(value) {
 }
 function title(value) {
   return String(value).replace(/_/g, " ").replace(/([A-Z])/g, " $1").replace(/\b\w/g, (char) => char.toUpperCase()).trim();
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 refresh();
