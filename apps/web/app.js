@@ -12,10 +12,11 @@ let autoTradeInFlight = false;
 let lastAutoTradeAt = 0;
 const autoTradeIntervalMs = 60 * 1000;
 const previousPrices = new Map();
-const aiLogs = [];
+let aiLogs = readAiLogs();
 const activePageKey = "dpTraderActivePage";
 const localOrdersKey = "dpTraderLocalOrders";
 const llmUsageKey = "dpTraderLlmUsage";
+const sessionVaultKey = "dpTraderSessionVault";
 
 const integrationFields = {
   alpaca: ["apiKey", "secretKey"],
@@ -496,6 +497,7 @@ async function saveSettings(event) {
   try {
     unlockedIntegrations = nextIntegrations;
     const savedMode = await saveBrowserVault(passphrase, unlockedIntegrations);
+    saveSessionVault(unlockedIntegrations);
     vaultUnlocked = true;
     event.target.reset();
     document.querySelector("#vaultPassphrase").value = passphrase;
@@ -537,6 +539,7 @@ async function unlockVault() {
   }
   try {
     unlockedIntegrations = await readBrowserVault(passphrase, JSON.parse(stored));
+    saveSessionVault(unlockedIntegrations);
     vaultUnlocked = true;
     await refresh();
     showSettingsMessage("Browser vault unlocked.", "success");
@@ -547,7 +550,10 @@ async function unlockVault() {
 
 async function clearVault() {
   localStorage.removeItem(vaultKey);
+  localStorage.removeItem(aiLogsKey());
+  sessionStorage.removeItem(sessionVaultKey);
   unlockedIntegrations = {};
+  aiLogs = [];
   vaultUnlocked = false;
   document.querySelector("#vaultPassphrase").value = "";
   await refresh();
@@ -622,8 +628,40 @@ function logAiActivity(status, message, details) {
     details
   });
   aiLogs.splice(80);
+  saveAiLogs();
   setAiTraderStatus(title(status), message);
   renderAiLogs();
+}
+
+function readAiLogs() {
+  try {
+    return JSON.parse(localStorage.getItem(aiLogsKey()) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveAiLogs() {
+  localStorage.setItem(aiLogsKey(), JSON.stringify(aiLogs));
+}
+
+function aiLogsKey() {
+  return "dpTraderAiLogs";
+}
+
+function saveSessionVault(integrations) {
+  sessionStorage.setItem(sessionVaultKey, JSON.stringify(integrations));
+}
+
+function restoreSessionVault() {
+  try {
+    const stored = sessionStorage.getItem(sessionVaultKey);
+    if (!stored) return;
+    unlockedIntegrations = JSON.parse(stored);
+    vaultUnlocked = true;
+  } catch {
+    sessionStorage.removeItem(sessionVaultKey);
+  }
 }
 
 function describeAutoTradeResult(result) {
@@ -847,6 +885,7 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+restoreSessionVault();
 showPage(location.hash.slice(1) || localStorage.getItem(activePageKey) || "markets");
 window.addEventListener("hashchange", () => showPage(location.hash.slice(1) || "markets"));
 refresh();
