@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { alpacaApiRoot, assertPaperTradingEndpoint, fetchAlpacaAccount, fetchAlpacaLatestMarket } from "../apps/api/services/alpacaClient.js";
+import { alpacaApiRoot, assertPaperTradingEndpoint, cancelAllAlpacaOrders, closeAllAlpacaPositions, fetchAlpacaAccount, fetchAlpacaLatestMarket } from "../apps/api/services/alpacaClient.js";
 
 test("normalizes Alpaca paper base URL with or without v2 suffix", () => {
   assert.equal(alpacaApiRoot({ alpaca: { baseUrl: "https://paper-api.alpaca.markets" } }), "https://paper-api.alpaca.markets/v2");
@@ -46,6 +46,36 @@ test("fetches Alpaca free latest market data from IEX feed", async () => {
     assert.equal(market.length, 2);
     assert.equal(market[0].source, "alpaca_iex");
     assert.equal(market[0].price, 190.12);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("can request emergency Alpaca order cancellation", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, "https://paper-api.alpaca.markets/v2/orders");
+    assert.equal(options.method, "DELETE");
+    return Response.json([{ id: "cancelled" }]);
+  };
+  try {
+    const result = await cancelAllAlpacaOrders({ alpaca: { key: "key", secret: "secret", baseUrl: "https://paper-api.alpaca.markets/v2" } });
+    assert.equal(result[0].id, "cancelled");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("can request emergency Alpaca position close", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, "https://paper-api.alpaca.markets/v2/positions");
+    assert.equal(options.method, "DELETE");
+    return Response.json([{ symbol: "AAPL" }]);
+  };
+  try {
+    const result = await closeAllAlpacaPositions({ alpaca: { key: "key", secret: "secret", baseUrl: "https://paper-api.alpaca.markets/v2" } });
+    assert.equal(result[0].symbol, "AAPL");
   } finally {
     globalThis.fetch = originalFetch;
   }

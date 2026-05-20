@@ -11,6 +11,15 @@ export function calculatePositionSize({ equity, entryPrice, stopPrice, maxRiskPe
   };
 }
 
+export function capPositionByBuyingPower({ shares, entryPrice, buyingPower, maxPositionValuePct }) {
+  const maxPositionValue = Math.max(0, buyingPower * (maxPositionValuePct / 100));
+  const cappedShares = Math.floor(maxPositionValue / entryPrice);
+  return {
+    shares: Math.max(0, Math.min(shares, cappedShares)),
+    maxPositionValue: Number(maxPositionValue.toFixed(2))
+  };
+}
+
 export function evaluateRisk({ signal, account, state, config, now = new Date() }) {
   const reasons = [];
   const dailyLossPct = account.equity > 0 ? Math.abs(Math.min(0, account.dayPnl)) / account.equity * 100 : 0;
@@ -31,11 +40,17 @@ export function evaluateRisk({ signal, account, state, config, now = new Date() 
   if (afterCutoff) reasons.push("after_new_trade_cutoff");
   if (afterForceFlat) reasons.push("after_force_flat_time");
 
-  const sizing = calculatePositionSize({
+  const riskSizing = calculatePositionSize({
     equity: account.equity,
     entryPrice: signal.entryPrice,
     stopPrice: signal.stopPrice,
     maxRiskPerTradePct: config.maxRiskPerTradePct
+  });
+  const sizing = capPositionByBuyingPower({
+    shares: riskSizing.shares,
+    entryPrice: signal.entryPrice,
+    buyingPower: account.buyingPower || account.equity,
+    maxPositionValuePct: config.maxPositionValuePct
   });
 
   if (sizing.shares < 1) reasons.push("position_size_below_one_share");
@@ -44,7 +59,9 @@ export function evaluateRisk({ signal, account, state, config, now = new Date() 
     decision: reasons.length ? "rejected" : "approved",
     reasonCodes: reasons.length ? reasons : ["risk_approved"],
     rewardRisk: Number(rewardRisk.toFixed(2)),
-    ...sizing
+    ...riskSizing,
+    shares: sizing.shares,
+    maxPositionValue: sizing.maxPositionValue
   };
 }
 

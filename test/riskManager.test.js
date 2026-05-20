@@ -21,7 +21,8 @@ const baseConfig = {
   minRewardRisk: 1.5,
   maxSpreadPct: 0.08,
   minAvgVolume: 2000000,
-  maxExecutionErrors: 3
+  maxExecutionErrors: 3,
+  maxPositionValuePct: 20
 };
 
 test("calculates shares from account risk and stop distance", () => {
@@ -85,4 +86,16 @@ test("rejects low average volume signals", () => {
   });
   assert.equal(decision.decision, "rejected");
   assert.ok(decision.reasonCodes.includes("average_volume_too_low"));
+});
+
+test("caps shares by buying power position value", () => {
+  const decision = evaluateRisk({
+    signal: { ...baseSignal, avgVolume: 3000000 },
+    account: { equity: 100000, buyingPower: 1000, dayPnl: 0 },
+    state: baseState,
+    config: baseConfig,
+    now: new Date("2026-05-20T14:00:00-04:00")
+  });
+  assert.equal(decision.shares, 2);
+  assert.equal(decision.maxPositionValue, 200);
 });

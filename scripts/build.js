@@ -7,6 +7,8 @@ const required = [
   "api/settings/integrations.js",
   "api/kill-switch.js",
   "api/auto-trade.js",
+  "api/emergency/cancel-orders.js",
+  "api/emergency/close-positions.js",
   "api/orders/simulate.js",
   "apps/web/index.html",
   "apps/web/styles.css",

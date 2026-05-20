@@ -135,6 +135,34 @@ export async function submitAlpacaBracketOrder(config, signal, risk) {
   return body;
 }
 
+export async function cancelAllAlpacaOrders(config) {
+  assertPaperTradingEndpoint(config);
+  if (!hasAlpacaCredentials(config)) throw new Error("Alpaca paper credentials are missing");
+  const response = await fetch(`${alpacaApiRoot(config)}/orders`, {
+    method: "DELETE",
+    headers: alpacaHeaders(config)
+  });
+  const body = await response.json().catch(() => []);
+  if (!response.ok) {
+    throw new Error(`Alpaca cancel orders request failed: ${response.status}`);
+  }
+  return body;
+}
+
+export async function closeAllAlpacaPositions(config) {
+  assertPaperTradingEndpoint(config);
+  if (!hasAlpacaCredentials(config)) throw new Error("Alpaca paper credentials are missing");
+  const response = await fetch(`${alpacaApiRoot(config)}/positions`, {
+    method: "DELETE",
+    headers: alpacaHeaders(config)
+  });
+  const body = await response.json().catch(() => []);
+  if (!response.ok) {
+    throw new Error(`Alpaca close positions request failed: ${response.status}`);
+  }
+  return body;
+}
+
 export function alpacaApiRoot(config) {
   const base = (config.alpaca.baseUrl || "https://paper-api.alpaca.markets").replace(/\/+$/, "");
   return base.endsWith("/v2") ? base : `${base}/v2`;

@@ -124,6 +124,7 @@ a { color: var(--accent); text-decoration: none; }
 .icon-btn svg { width: 16px; height: 16px; }
 .icon-btn.danger { color: var(--red); }
 .icon-btn.danger.active { background: rgba(255,71,87,.16); }
+.top-pause-button { height: 34px; white-space: nowrap; }
 .btn-deposit {
   background: var(--green); color: #052015; border: 0; border-radius: 8px;
   padding: 8px 18px; font-weight: 800; cursor: pointer; letter-spacing: .02em;
@@ -398,6 +399,7 @@ h2 { font-size: 15px; font-weight: 700; margin: 0 0 12px; padding: 16px 18px 0; 
 .log-status.warn { background: rgba(244,195,67,.14); color: var(--yellow); }
 
 .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; padding: 0 18px 16px; }
+.emergency-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 18px 0; }
 .settings-lock { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 18px; }
 .settings-lock input {
   min-width: 240px; flex: 1; background: var(--bg-2); border: 1px solid var(--line); color: var(--text);

@@ -82,6 +82,7 @@
             <button class="icon-btn danger" id="killSwitchButton" title="Pause trading">
               <svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" fill="currentColor"/><rect x="14" y="5" width="4" height="14" fill="currentColor"/></svg>
             </button>
+            <button class="button danger top-pause-button" id="pauseTextButton" type="button">Pause AI</button>
           </div>
         </header>
 
@@ -176,6 +177,11 @@
         <section id="orders" class="page">
           <div class="panel">
             <div class="section-head"><h2>Portfolio</h2><span class="muted">Alpaca paper positions, P&amp;L, and orders</span></div>
+            <div class="emergency-actions">
+              <button class="button danger" id="cancelOrdersButton" type="button">Cancel Open Orders</button>
+              <button class="button danger" id="closePositionsButton" type="button">Close Positions</button>
+              <span class="muted" id="emergencyMessage">Emergency actions pause AI first.</span>
+            </div>
             <div id="positionsTable" class="table"></div>
             <div id="ordersTable" class="table"></div>
           </div>

@@ -12,6 +12,10 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
   if (store.killSwitch) {
     return { status: "paused", reason: "kill_switch_enabled" };
   }
+  if (hasActiveOrderOrPosition(store)) {
+    appendEvent(store, "info", "AI auto trader skipped because an order or position is already active");
+    return { status: "no_trade", reason: "active_order_or_position" };
+  }
 
   const market = await loadMarketSnapshot(config, store, now);
   const candidates = buildSignals(market).map((signal) => {
@@ -65,6 +69,12 @@ function summarizeStoreForAuto(store, now) {
 function hasRecentOrder(store, symbol, now) {
   const cutoff = now.getTime() - DUPLICATE_WINDOW_MS;
   return store.orders.some((order) => order.symbol === symbol && Date.parse(order.createdAt) >= cutoff);
+}
+
+function hasActiveOrderOrPosition(store) {
+  if (store.positions.length > 0) return true;
+  const activeStatuses = new Set(["new", "accepted", "pending_new", "partially_filled", "held", "calculated"]);
+  return store.orders.some((order) => activeStatuses.has(order.status));
 }
 
 function normalizeAutoOrder(alpacaOrder, candidate) {

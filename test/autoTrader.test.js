@@ -16,7 +16,10 @@ const config = {
     maxTradesPerHour: 3,
     maxTradesPerDay: 8,
     minRewardRisk: 1.5,
-    maxSpreadPct: 0.08
+    maxSpreadPct: 0.08,
+    minAvgVolume: 2000000,
+    maxExecutionErrors: 3,
+    maxPositionValuePct: 20
   }
 };
 
@@ -60,4 +63,21 @@ test("does not auto trade while kill switch is enabled", async () => {
   });
   assert.equal(result.status, "paused");
   assert.equal(store.orders.length, 0);
+});
+
+test("does not auto trade when an active order already exists", async () => {
+  const store = createStore();
+  store.orders.push({
+    id: "existing",
+    symbol: "AAPL",
+    status: "new",
+    createdAt: new Date("2026-05-20T14:00:00-04:00").toISOString()
+  });
+  const result = await runAutoTradeCycle({
+    config,
+    store,
+    now: new Date("2026-05-20T14:00:00-04:00")
+  });
+  assert.equal(result.status, "no_trade");
+  assert.equal(result.reason, "active_order_or_position");
 });

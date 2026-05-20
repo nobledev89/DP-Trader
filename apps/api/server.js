@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { basename, extname, join, normalize } from "node:path";
 import { readConfig, assertLiveTradingAllowed } from "./config.js";
 import { createStore, appendEvent } from "./store.js";
-import { fetchAlpacaAccount, fetchAlpacaOrders, fetchAlpacaPositions } from "./services/alpacaClient.js";
+import { cancelAllAlpacaOrders, closeAllAlpacaPositions, fetchAlpacaAccount, fetchAlpacaOrders, fetchAlpacaPositions } from "./services/alpacaClient.js";
 import { configWithRequestCredentials, requestIntegrationStatus } from "./services/requestCredentials.js";
 import { buildSignals } from "./domain/strategyEngine.js";
 import { loadMarketSnapshot, storeMarketSnapshot } from "./domain/marketData.js";
@@ -130,6 +130,24 @@ async function handleApi(req, res, url, cfg, state) {
       appendEvent(state, "warning", `AI auto trader blocked: ${error.message}`);
       sendJson(res, 409, { status: "blocked", error: error.message });
     }
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/emergency/cancel-orders") {
+    const requestConfig = configWithRequestCredentials(cfg, req.headers);
+    const result = await cancelAllAlpacaOrders(requestConfig);
+    state.killSwitch = true;
+    appendEvent(state, "warning", "Emergency cancel all Alpaca paper orders requested");
+    sendJson(res, 200, { status: "cancel_requested", result });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/emergency/close-positions") {
+    const requestConfig = configWithRequestCredentials(cfg, req.headers);
+    const result = await closeAllAlpacaPositions(requestConfig);
+    state.killSwitch = true;
+    appendEvent(state, "warning", "Emergency close all Alpaca paper positions requested");
+    sendJson(res, 200, { status: "close_requested", result });
     return;
   }
 

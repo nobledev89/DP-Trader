@@ -17,6 +17,7 @@ const activePageKey = "dpTraderActivePage";
 const localOrdersKey = "dpTraderLocalOrders";
 const llmUsageKey = "dpTraderLlmUsage";
 const sessionVaultKey = "dpTraderSessionVault";
+const localPauseKey = "dpTraderAutoPaused";
 
 const integrationFields = {
   alpaca: ["apiKey", "secretKey"],
@@ -43,12 +44,38 @@ navItems.forEach((item) => {
 });
 document.querySelector("#refreshButton").addEventListener("click", refresh);
 document.querySelector("#killSwitchButton").addEventListener("click", async () => {
-  await postJson("/api/kill-switch", { enabled: !state?.risk?.killSwitch });
-  await refresh();
+  await togglePause();
 });
+document.querySelector("#pauseTextButton").addEventListener("click", async () => {
+  await togglePause();
+});
+
+async function togglePause() {
+  const nextPaused = !isAutoPaused();
+  localStorage.setItem(localPauseKey, String(nextPaused));
+  await postJson("/api/kill-switch", { enabled: nextPaused });
+  logAiActivity(nextPaused ? "paused" : "running", nextPaused ? "Auto trading paused by user." : "Auto trading resumed by user.", {});
+  await refresh();
+}
+
+async function emergencyAction(action) {
+  localStorage.setItem(localPauseKey, "true");
+  try {
+    setText("#emergencyMessage", "Sending emergency request...");
+    const result = await postJson(`/api/emergency/${action}`, {});
+    logAiActivity("paused", `${title(action)} requested. AI paused.`, result);
+    setText("#emergencyMessage", `${title(action)} requested. Refreshing Alpaca state...`);
+    await refresh();
+  } catch (error) {
+    logAiActivity("blocked", `Emergency ${action} blocked: ${error.message}`, {});
+    setText("#emergencyMessage", `Emergency request failed: ${error.message}`);
+  }
+}
 document.querySelector("#settingsForm").addEventListener("submit", saveSettings);
 document.querySelector("#unlockVaultButton").addEventListener("click", unlockVault);
 document.querySelector("#clearVaultButton").addEventListener("click", clearVault);
+document.querySelector("#cancelOrdersButton").addEventListener("click", () => emergencyAction("cancel-orders"));
+document.querySelector("#closePositionsButton").addEventListener("click", () => emergencyAction("close-positions"));
 
 document.querySelectorAll("#instrumentTabs .tab").forEach((tab) => {
   tab.addEventListener("click", () => {
@@ -104,7 +131,8 @@ function renderState(data) {
   setText("#openPositions", String(data.positions.length));
   setText("#accountSource", `${data.account.source} account`);
   setText("#lastTick", time(new Date()));
-  setText("#riskState", data.risk.killSwitch ? "Paused" : "Ready");
+  const autoPaused = isAutoPaused() || data.risk.killSwitch;
+  setText("#riskState", autoPaused ? "Paused" : "Ready");
   setText("#riskLimits", `${data.risk.maxRiskPerTradePct}% risk/trade, ${data.risk.maxDailyLossPct}% daily stop`);
   setText("#modeLabel", data.risk.tradingMode.toUpperCase());
 
@@ -113,9 +141,11 @@ function renderState(data) {
   liveGuard.className = data.risk.liveTradingArmed ? "pill danger-pill" : "pill safe";
 
   const killButton = document.querySelector("#killSwitchButton");
-  killButton.classList.toggle("active", data.risk.killSwitch);
-  killButton.title = data.risk.killSwitch ? "Resume paper trading" : "Pause trading";
-  if (tradeButton) tradeButton.textContent = data.risk.killSwitch ? "AI Auto Paused" : "AI Auto Active";
+  killButton.classList.toggle("active", autoPaused);
+  killButton.title = autoPaused ? "Resume paper trading" : "Pause trading";
+  const pauseTextButton = document.querySelector("#pauseTextButton");
+  if (pauseTextButton) pauseTextButton.textContent = autoPaused ? "Resume AI" : "Pause AI";
+  if (tradeButton) tradeButton.textContent = autoPaused ? "AI Auto Paused" : "AI Auto Active";
   renderAiLogs();
 
   renderWatchlist(data.market);
@@ -583,7 +613,7 @@ async function maybeRunAutoTrade() {
     logAiActivity("waiting", "Alpaca browser keys are missing. AI cannot submit paper orders.", {});
     return;
   }
-  if (state?.risk?.killSwitch) {
+  if (isAutoPaused() || state?.risk?.killSwitch) {
     logAiActivity("paused", "Pause button is active. AI cycle skipped.", {});
     return;
   }
@@ -746,6 +776,10 @@ function localIntegrationStatus(key) {
     configured: vaultUnlocked && missing.length === 0,
     missing
   };
+}
+
+function isAutoPaused() {
+  return localStorage.getItem(localPauseKey) === "true";
 }
 
 function fieldPlaceholder(key, field) {

@@ -28,7 +28,8 @@ export function readConfig(env = process.env) {
       minRewardRisk: number("MIN_REWARD_RISK", 1.5),
       maxSpreadPct: number("MAX_SPREAD_PCT", 0.08),
       minAvgVolume: number("MIN_AVG_VOLUME", 2000000),
-      maxExecutionErrors: number("MAX_EXECUTION_ERRORS", 3)
+      maxExecutionErrors: number("MAX_EXECUTION_ERRORS", 3),
+      maxPositionValuePct: number("MAX_POSITION_VALUE_PCT", 20)
     }
   };
 }
