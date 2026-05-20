@@ -19,7 +19,9 @@ Set `DATABASE_URL` to a Supabase/Postgres connection string, then run:
 npm run db:migrate
 ```
 
-The database stores system events, account snapshots, positions, orders, strategy signals, risk decisions, auto-trade cycles, and future LLM usage records. The app still falls back to browser/server memory if `DATABASE_URL` is not configured.
+The database stores system events, account snapshots, positions, orders, strategy signals, risk decisions, auto-trade cycles, LLM usage records, and server-side integration API keys.
+
+For Vercel deployments, add the same `DATABASE_URL` as a Vercel environment variable for the deployed environment, then redeploy. Local `.env` values are not available to Vercel functions unless they are configured in the Vercel project. Settings API key saves require `DATABASE_URL`; without it the Settings page will reject saves instead of showing a false saved state.
 
 ## Safety Defaults
 
