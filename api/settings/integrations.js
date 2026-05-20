@@ -1,12 +1,13 @@
 import { appendEvent } from "../../apps/api/store.js";
 import { persistEvent } from "../../apps/api/db/persistence.js";
-import { clearIntegrations, ensureBootstrap, getRuntime, publicIntegrations, readBody, send, updateIntegrations } from "../_runtimeState.js";
+import { clearIntegrations, ensureBootstrap, getRuntime, publicIntegrations, readBody, refreshStoredIntegrationKeys, send, updateIntegrations } from "../_runtimeState.js";
 
 export default async function handler(request, response) {
   await ensureBootstrap();
   const { config, store } = getRuntime();
 
   if (request.method === "GET") {
+    await refreshStoredIntegrationKeys();
     send(response, 200, { integrations: publicIntegrations(config, store) });
     return;
   }

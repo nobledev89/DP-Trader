@@ -47,6 +47,10 @@ async function bootstrapPersistedIntegrationKeys(state) {
   }
 }
 
+async function refreshStoredIntegrationKeys(state) {
+  await bootstrapPersistedIntegrationKeys(state);
+}
+
 function hasMeaningfulSecret(payload) {
   if (!payload || typeof payload !== "object") return false;
   return Object.values(payload).some((value) => typeof value === "string" && value.trim().length > 0);
@@ -69,6 +73,7 @@ export function createApp({ cfg = config, state = store } = {}) {
 
 async function handleApi(req, res, url, cfg, state) {
   if (req.method === "GET" && url.pathname === "/api/state") {
+    await refreshStoredIntegrationKeys(state);
     const requestConfig = configWithStoredCredentials(cfg, state);
     await refreshAlpacaReadOnlyData(requestConfig, state);
     await refreshPersistedEvents(state);
@@ -112,6 +117,7 @@ async function handleApi(req, res, url, cfg, state) {
   }
 
   if (req.method === "GET" && url.pathname === "/api/settings/integrations") {
+    await refreshStoredIntegrationKeys(state);
     sendJson(res, 200, { integrations: publicIntegrations(cfg, state) });
     return;
   }
@@ -135,6 +141,7 @@ async function handleApi(req, res, url, cfg, state) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/orders/simulate") {
+    await refreshStoredIntegrationKeys(state);
     const requestConfig = configWithStoredCredentials(cfg, state);
     const body = await readBody(req);
     if (state.killSwitch) {
@@ -173,6 +180,7 @@ async function handleApi(req, res, url, cfg, state) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/auto-trade") {
+    await refreshStoredIntegrationKeys(state);
     const requestConfig = configWithStoredCredentials(cfg, state);
     try {
       await refreshAlpacaReadOnlyData(requestConfig, state);
@@ -188,6 +196,7 @@ async function handleApi(req, res, url, cfg, state) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/emergency/cancel-orders") {
+    await refreshStoredIntegrationKeys(state);
     const requestConfig = configWithStoredCredentials(cfg, state);
     const result = await cancelAllAlpacaOrders(requestConfig);
     state.killSwitch = true;
@@ -198,6 +207,7 @@ async function handleApi(req, res, url, cfg, state) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/emergency/close-positions") {
+    await refreshStoredIntegrationKeys(state);
     const requestConfig = configWithStoredCredentials(cfg, state);
     const result = await closeAllAlpacaPositions(requestConfig);
     state.killSwitch = true;

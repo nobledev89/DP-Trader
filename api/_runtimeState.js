@@ -36,6 +36,10 @@ export async function ensureBootstrap() {
   if (globalState.bootstrap) await globalState.bootstrap;
 }
 
+export async function refreshStoredIntegrationKeys() {
+  await bootstrapPersistedIntegrationKeys(globalState.store);
+}
+
 export function configForStore(config, store) {
   return configWithStoredCredentials(config, store);
 }

@@ -1,7 +1,7 @@
 import { cancelAllAlpacaOrders } from "../../apps/api/services/alpacaClient.js";
 import { persistEvent } from "../../apps/api/db/persistence.js";
 import { appendEvent } from "../../apps/api/store.js";
-import { configForStore, ensureBootstrap, getRuntime, send } from "../_runtimeState.js";
+import { configForStore, ensureBootstrap, getRuntime, refreshStoredIntegrationKeys, send } from "../_runtimeState.js";
 
 export default async function handler(request, response) {
   if (request.method !== "POST") {
@@ -10,6 +10,7 @@ export default async function handler(request, response) {
   }
 
   await ensureBootstrap();
+  await refreshStoredIntegrationKeys();
   const { config, store } = getRuntime();
   const requestConfig = configForStore(config, store);
   try {
