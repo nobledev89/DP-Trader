@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DP-Trader</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">DP</div>
+          <div>
+            <strong>DP-Trader</strong>
+            <span>AI paper trading</span>
+          </div>
+        </div>
+        <nav class="nav" aria-label="Dashboard sections">
+          <button class="nav-item active" data-page="overview">Overview</button>
+          <button class="nav-item" data-page="signals">Live Signals</button>
+          <button class="nav-item" data-page="orders">Orders & Trades</button>
+          <button class="nav-item" data-page="strategy">Strategy</button>
+          <button class="nav-item" data-page="model">Model</button>
+          <button class="nav-item" data-page="settings">Settings</button>
+        </nav>
+        <div class="risk-panel">
+          <span class="muted">Mode</span>
+          <strong id="modeLabel">Paper</strong>
+          <span id="liveGuard" class="pill safe">Live blocked</span>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">First-user safe trading console</p>
+            <h1 id="pageTitle">Overview</h1>
+          </div>
+          <div class="top-actions">
+            <button id="refreshButton" class="button secondary">Refresh</button>
+            <button id="killSwitchButton" class="button danger">Pause Trading</button>
+          </div>
+        </header>
+
+        <section id="overview" class="page active">
+          <div class="metric-grid">
+            <article class="metric"><span>Equity</span><strong id="equity">$0</strong><small id="accountSource">Simulated</small></article>
+            <article class="metric"><span>Daily P&L</span><strong id="dayPnl">$0</strong><small>Hard stop enforced</small></article>
+            <article class="metric"><span>Open Positions</span><strong id="openPositions">0</strong><small>Starts at one max</small></article>
+            <article class="metric"><span>Risk State</span><strong id="riskState">Loading</strong><small id="riskLimits">Checking limits</small></article>
+          </div>
+          <div class="content-grid">
+            <section class="panel wide">
+              <div class="section-head"><h2>Market Watch</h2><span class="muted">1-minute simulated feed</span></div>
+              <div id="marketGrid" class="market-grid"></div>
+            </section>
+            <section class="panel">
+              <div class="section-head"><h2>System Events</h2></div>
+              <div id="eventsList" class="event-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="signals" class="page">
+          <div class="panel">
+            <div class="section-head"><h2>Ranked Signals</h2><span class="muted">AI scorer filters, risk manager approves</span></div>
+            <div id="signalsTable" class="table"></div>
+          </div>
+        </section>
+
+        <section id="orders" class="page">
+          <div class="panel">
+            <div class="section-head"><h2>Orders & Trades</h2><span class="muted">Paper-simulated order lifecycle</span></div>
+            <div id="ordersTable" class="table"></div>
+          </div>
+        </section>
+
+        <section id="strategy" class="page">
+          <div class="content-grid">
+            <section class="panel">
+              <h2>Strategy Performance</h2>
+              <div class="score-list">
+                <div><span>VWAP Pullback</span><strong>Shadow collecting</strong></div>
+                <div><span>Opening Range Breakout</span><strong>Shadow collecting</strong></div>
+                <div><span>Max Drawdown</span><strong>0.0%</strong></div>
+                <div><span>Profit Factor</span><strong>Pending 30 sessions</strong></div>
+              </div>
+            </section>
+            <section class="panel">
+              <h2>Risk Rules</h2>
+              <div id="riskRules" class="score-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="model" class="page">
+          <div class="content-grid">
+            <section class="panel">
+              <h2>Active AI Scorer</h2>
+              <p class="body-copy">The current model is a transparent heuristic scorer that behaves like a supervised setup filter. It ranks signals, explains reasons, and never places trades directly.</p>
+              <div class="score-list">
+                <div><span>Model</span><strong>heuristic-shadow-v1</strong></div>
+                <div><span>Promotion Stage</span><strong>paper_shadow</strong></div>
+                <div><span>Autonomous Execution</span><strong>Disabled</strong></div>
+              </div>
+            </section>
+            <section class="panel">
+              <h2>Calibration</h2>
+              <div id="modelBars" class="bars"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="settings" class="page">
+          <div class="panel">
+            <div class="section-head"><h2>Integration API Keys</h2><span class="muted">Stored in server memory for this local session</span></div>
+            <form id="settingsForm" class="settings-form">
+              <div class="settings-grid" id="settingsGrid"></div>
+              <button class="button primary" type="submit">Save Keys For Session</button>
+            </form>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
