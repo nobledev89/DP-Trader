@@ -22,23 +22,27 @@
           </button>
           <button class="nav-item" data-page="signals" title="Signals">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l5-9 6 18 5-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span>Trades</span>
+            <span>Signals</span>
           </button>
           <button class="nav-item" data-page="orders" title="Orders">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 9h8M8 13h8M8 17h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-            <span>Balance</span>
+            <span>Portfolio</span>
           </button>
           <button class="nav-item" data-page="strategy" title="Strategy">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-            <span>My Profile</span>
+            <span>Strategy</span>
           </button>
           <button class="nav-item" data-page="model" title="Model">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4v6c0 5-4 7-8 8-4-1-8-3-8-8V7l8-4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
-            <span>Support</span>
+            <span>Model</span>
           </button>
           <button class="nav-item" data-page="logs" title="AI Logs">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 8h8M8 12h8M8 16h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             <span>Logs</span>
+          </button>
+          <button class="nav-item" data-page="llm" title="LLM Usage">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="18" cy="17" r="2" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            <span>LLM</span>
           </button>
           <button class="nav-item" data-page="settings" title="Settings">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4.9a7 7 0 0 0-2.1-1.2L14 3h-4l-.4 2.5a7 7 0 0 0-2.1 1.2L5.1 5.8l-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-.9a7 7 0 0 0 2.1 1.2L10 21h4l.4-2.5a7 7 0 0 0 2.1-1.2l2.4.9 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
@@ -56,7 +60,6 @@
           <div class="instrument-tabs" id="instrumentTabs" role="tablist">
             <button class="tab active" data-filter="popular">All Instruments</button>
             <button class="tab" data-filter="popular2">Popular</button>
-            <button class="tab" data-filter="crypto">Crypto</button>
             <button class="tab" data-filter="rising">Top rising</button>
             <button class="tab" data-filter="falling">Top falling</button>
             <button class="tab" data-filter="quantity">Top quantity (1 day)</button>
@@ -67,7 +70,7 @@
             <button class="icon-btn" id="refreshButton" title="Refresh">
               <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5l2-2v6h-6l2-2a6 6 0 1 0 1.7 6.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
-            <button class="btn-deposit">Deposit</button>
+            <button class="btn-deposit" type="button" title="Paper mode only">Paper Mode</button>
             <div class="account-chip">
               <span class="dot"></span>
               <div>
@@ -168,7 +171,8 @@
         <!-- ORDERS -->
         <section id="orders" class="page">
           <div class="panel">
-            <div class="section-head"><h2>Orders &amp; Trades</h2><span class="muted">Paper-simulated order lifecycle</span></div>
+            <div class="section-head"><h2>Portfolio</h2><span class="muted">Alpaca paper positions, P&amp;L, and orders</span></div>
+            <div id="positionsTable" class="table"></div>
             <div id="ordersTable" class="table"></div>
           </div>
         </section>
@@ -216,6 +220,20 @@
           <div class="panel">
             <div class="section-head"><h2>AI Activity Logs</h2><span class="muted" id="logCount">0 events</span></div>
             <div id="aiLogList" class="log-list"></div>
+          </div>
+        </section>
+
+        <!-- LLM USAGE -->
+        <section id="llm" class="page">
+          <div class="metric-row usage-metrics">
+            <article class="metric"><span>Total Cost</span><strong id="llmTotalCost">$0.0000</strong><small>Browser-tracked session</small></article>
+            <article class="metric"><span>Requests</span><strong id="llmRequests">0</strong><small>OpenAI + Claude</small></article>
+            <article class="metric"><span>Tokens</span><strong id="llmTokens">0</strong><small>Input + output</small></article>
+            <article class="metric"><span>Last Call</span><strong id="llmLastCall">None</strong><small id="llmLastProvider">No LLM calls yet</small></article>
+          </div>
+          <div class="panel">
+            <div class="section-head"><h2>LLM Usage Costs</h2><span class="muted" id="llmUsageCount">0 events</span></div>
+            <div id="llmUsageList" class="log-list"></div>
           </div>
         </section>
 

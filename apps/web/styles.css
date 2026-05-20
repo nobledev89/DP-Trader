@@ -317,6 +317,7 @@ a { color: var(--accent); text-decoration: none; }
 .metric-row {
   display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px;
 }
+.usage-metrics { margin-bottom: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .metric {
   background: var(--panel); border: 1px solid var(--line-soft); border-radius: 12px;
   padding: 14px 16px; box-shadow: var(--shadow);
@@ -343,6 +344,7 @@ h2 { font-size: 15px; font-weight: 700; margin: 0 0 12px; padding: 16px 18px 0; 
   font-size: 12.5px;
 }
 .row.header { color: var(--muted); background: transparent; border-color: transparent; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding-bottom: 4px; }
+.portfolio-row { grid-template-columns: 1fr .6fr .8fr .8fr .9fr .9fr; }
 
 .button {
   border: 1px solid var(--line); color: var(--text); background: var(--panel-2);

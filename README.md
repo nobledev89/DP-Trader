@@ -20,6 +20,8 @@ No package dependencies are required today, so `npm install` is optional unless 
 - The UI and API expose a kill switch.
 - AI auto trading is locked to Alpaca paper trading. The dashboard must be open and the browser vault must be unlocked for browser-saved keys to be sent with auto-trade cycles.
 - The pause button is the operating control. When not paused, the AI auto trader evaluates signals, applies risk checks, and submits approved bracket orders to Alpaca paper trading.
+- Portfolio reads Alpaca paper account, positions, and orders when credentials are available.
+- `DATABASE_URL` is reserved for the next persistence phase. Without a database, Vercel serverless state is still not durable.
 
 ## Checks
 

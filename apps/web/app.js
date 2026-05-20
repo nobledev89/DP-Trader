@@ -15,6 +15,7 @@ const previousPrices = new Map();
 const aiLogs = [];
 const activePageKey = "dpTraderActivePage";
 const localOrdersKey = "dpTraderLocalOrders";
+const llmUsageKey = "dpTraderLlmUsage";
 
 const integrationFields = {
   alpaca: ["apiKey", "secretKey"],
@@ -118,10 +119,12 @@ function renderState(data) {
 
   renderWatchlist(data.market);
   renderSignals(data.signals);
+  renderPositions(data.positions);
   renderOrders(data.orders);
   renderNews(data.events);
   renderRiskRules(data.risk);
   renderModelBars(data.signals);
+  renderLlmUsage();
 }
 
 /* ───── Watchlist ───── */
@@ -349,6 +352,24 @@ function renderSignals(signals) {
   `;
 }
 
+function renderPositions(positions) {
+  const table = document.querySelector("#positionsTable");
+  if (!table) return;
+  table.innerHTML = positions.length ? `
+    <div class="row portfolio-row header"><span>Symbol</span><span>Qty</span><span>Avg Entry</span><span>Current</span><span>Unrealized $</span><span>Unrealized %</span></div>
+    ${positions.map((position) => `
+      <div class="row portfolio-row">
+        <strong>${position.symbol}</strong>
+        <span>${position.qty}</span>
+        <span>${money(position.avgEntryPrice)}</span>
+        <span>${money(position.currentPrice)}</span>
+        <span class="${position.unrealizedPnl >= 0 ? "up" : "down"}">${money(position.unrealizedPnl)}</span>
+        <span class="${position.unrealizedPnlPct >= 0 ? "up" : "down"}">${percent(position.unrealizedPnlPct)}</span>
+      </div>
+    `).join("")}
+  ` : `<p class="body-copy">No open Alpaca paper positions.</p>`;
+}
+
 function renderOrders(orders) {
   const mergedOrders = mergeOrders(readLocalOrders(), orders);
   document.querySelector("#ordersTable").innerHTML = mergedOrders.length ? `
@@ -360,6 +381,30 @@ function renderOrders(orders) {
       </div>
     `).join("")}
   ` : `<p class="body-copy">No paper orders yet. AI will add Alpaca paper orders here after submission.</p>`;
+}
+
+function renderLlmUsage() {
+  const usage = readLlmUsage();
+  const totalCost = usage.reduce((sum, event) => sum + Number(event.costUsd || 0), 0);
+  const totalTokens = usage.reduce((sum, event) => sum + Number(event.inputTokens || 0) + Number(event.outputTokens || 0), 0);
+  const last = usage[0];
+  setText("#llmTotalCost", moneyPrecise(totalCost));
+  setText("#llmRequests", String(usage.length));
+  setText("#llmTokens", new Intl.NumberFormat("en-US").format(totalTokens));
+  setText("#llmLastCall", last ? time(last.createdAt) : "None");
+  setText("#llmLastProvider", last ? `${last.provider} ${last.model}` : "No LLM calls yet");
+  setText("#llmUsageCount", `${usage.length} events`);
+  const list = document.querySelector("#llmUsageList");
+  if (!list) return;
+  list.innerHTML = usage.length ? usage.map((event) => `
+    <article class="log-row">
+      <span class="log-status">${escapeHtml(event.provider)}</span>
+      <div>
+        <strong>${escapeHtml(event.model)} ${moneyPrecise(event.costUsd)}</strong>
+        <small>${time(event.createdAt)} | input ${event.inputTokens} | output ${event.outputTokens} | ${escapeHtml(event.reason)}</small>
+      </div>
+    </article>
+  `).join("") : `<p class="body-copy">No LLM usage recorded. The current scorer is heuristic and does not call OpenAI or Claude yet.</p>`;
 }
 
 function renderRiskRules(risk) {
@@ -595,6 +640,14 @@ function mergeOrders(primary, secondary) {
   return [...byId.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 }
 
+function readLlmUsage() {
+  try {
+    return JSON.parse(localStorage.getItem(llmUsageKey) || "[]");
+  } catch {
+    return [];
+  }
+}
+
 function renderAiLogs() {
   const list = document.querySelector("#aiLogList");
   if (!list) return;
@@ -758,6 +811,12 @@ function setText(selector, value) {
 }
 function money(value) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value || 0);
+}
+function moneyPrecise(value) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(value || 0);
+}
+function percent(value) {
+  return `${((value || 0) * 100).toFixed(2)}%`;
 }
 function time(value) {
   return new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit" }).format(new Date(value));

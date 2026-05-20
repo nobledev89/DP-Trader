@@ -19,7 +19,9 @@ const baseConfig = {
   maxTradesPerHour: 3,
   maxTradesPerDay: 8,
   minRewardRisk: 1.5,
-  maxSpreadPct: 0.08
+  maxSpreadPct: 0.08,
+  minAvgVolume: 2000000,
+  maxExecutionErrors: 3
 };
 
 test("calculates shares from account risk and stop distance", () => {
@@ -37,7 +39,7 @@ test("calculates shares from account risk and stop distance", () => {
 
 test("approves a signal that passes all hard risk gates", () => {
   const decision = evaluateRisk({
-    signal: baseSignal,
+    signal: { ...baseSignal, avgVolume: 3000000 },
     account: baseAccount,
     state: baseState,
     config: baseConfig,
@@ -49,7 +51,7 @@ test("approves a signal that passes all hard risk gates", () => {
 
 test("rejects when kill switch and daily loss limits are hit", () => {
   const decision = evaluateRisk({
-    signal: baseSignal,
+    signal: { ...baseSignal, avgVolume: 3000000 },
     account: { equity: 100000, dayPnl: -900 },
     state: { ...baseState, killSwitch: true },
     config: baseConfig,
@@ -58,4 +60,29 @@ test("rejects when kill switch and daily loss limits are hit", () => {
   assert.equal(decision.decision, "rejected");
   assert.ok(decision.reasonCodes.includes("kill_switch_enabled"));
   assert.ok(decision.reasonCodes.includes("daily_loss_limit_reached"));
+});
+
+test("rejects after force-flat time and repeated execution errors", () => {
+  const decision = evaluateRisk({
+    signal: { ...baseSignal, avgVolume: 3000000 },
+    account: baseAccount,
+    state: { ...baseState, executionErrors: 3 },
+    config: baseConfig,
+    now: new Date("2026-05-20T16:00:00-04:00")
+  });
+  assert.equal(decision.decision, "rejected");
+  assert.ok(decision.reasonCodes.includes("after_force_flat_time"));
+  assert.ok(decision.reasonCodes.includes("execution_error_circuit_breaker"));
+});
+
+test("rejects low average volume signals", () => {
+  const decision = evaluateRisk({
+    signal: { ...baseSignal, avgVolume: 100000 },
+    account: baseAccount,
+    state: baseState,
+    config: baseConfig,
+    now: new Date("2026-05-20T14:00:00-04:00")
+  });
+  assert.equal(decision.decision, "rejected");
+  assert.ok(decision.reasonCodes.includes("average_volume_too_low"));
 });

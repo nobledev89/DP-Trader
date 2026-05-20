@@ -4,6 +4,7 @@ export function hasAlpacaCredentials(config) {
 
 export async function fetchAlpacaAccount(config) {
   if (!hasAlpacaCredentials(config)) return null;
+  assertPaperTradingEndpoint(config);
   const response = await fetch(`${alpacaApiRoot(config)}/account`, {
     headers: alpacaHeaders(config)
   });
@@ -23,6 +24,7 @@ export async function fetchAlpacaAccount(config) {
 
 export async function fetchAlpacaPositions(config) {
   if (!hasAlpacaCredentials(config)) return null;
+  assertPaperTradingEndpoint(config);
   const response = await fetch(`${alpacaApiRoot(config)}/positions`, {
     headers: alpacaHeaders(config)
   });
@@ -34,7 +36,38 @@ export async function fetchAlpacaPositions(config) {
     qty: Number(position.qty),
     marketValue: Number(position.market_value),
     unrealizedPnl: Number(position.unrealized_pl),
-    avgEntryPrice: Number(position.avg_entry_price)
+    unrealizedPnlPct: Number(position.unrealized_plpc),
+    currentPrice: Number(position.current_price),
+    avgEntryPrice: Number(position.avg_entry_price),
+    side: Number(position.qty) >= 0 ? "long" : "short"
+  }));
+}
+
+export async function fetchAlpacaOrders(config) {
+  if (!hasAlpacaCredentials(config)) return null;
+  assertPaperTradingEndpoint(config);
+  const response = await fetch(`${alpacaApiRoot(config)}/orders?status=all&limit=50&direction=desc`, {
+    headers: alpacaHeaders(config)
+  });
+  if (!response.ok) {
+    throw new Error(`Alpaca orders request failed: ${response.status}`);
+  }
+  return (await response.json()).map((order) => ({
+    id: order.id,
+    clientOrderId: order.client_order_id,
+    symbol: order.symbol,
+    side: order.side,
+    qty: Number(order.qty),
+    type: order.order_class === "bracket" ? "alpaca_paper_bracket" : order.type,
+    limitPrice: Number(order.limit_price || order.filled_avg_price || 0),
+    stopPrice: Number(order.stop_price || 0),
+    targetPrice: Number(order.take_profit?.limit_price || 0),
+    status: order.status,
+    createdAt: order.created_at,
+    submittedAt: order.submitted_at,
+    filledAt: order.filled_at,
+    filledQty: Number(order.filled_qty || 0),
+    filledAvgPrice: Number(order.filled_avg_price || 0)
   }));
 }
 

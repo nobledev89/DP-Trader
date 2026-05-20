@@ -38,6 +38,7 @@ export function buildSignals(marketSnapshot, marketContext = { spyTrend: "up" })
       expectedR: Number((targetDistance / stopDistance).toFixed(2)),
       spreadPct: bar.spreadPct,
       relativeVolume: bar.relativeVolume,
+      avgVolume: 2500000 + index * 700000,
       aboveVwap: bar.price >= bar.vwap,
       emaSlope: Number((0.08 + Math.sin(index + bar.price) * 0.05).toFixed(3)),
       rsi: Math.round(49 + ((bar.price + index) % 19)),

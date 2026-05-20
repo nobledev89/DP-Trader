@@ -4,13 +4,15 @@ export function createStore() {
       id: "paper-sim",
       equity: 100000,
       buyingPower: 200000,
-      dayPnl: 842.35,
+      dayPnl: 0,
       status: "ACTIVE",
       source: "simulated"
     },
     positions: [],
     orders: [],
     fills: [],
+    executionErrors: 0,
+    lastAutoTradeAt: null,
     killSwitch: false,
     integrations: {
       alpaca: { label: "Alpaca Paper Trading", configured: false, updatedAt: null },
@@ -33,6 +35,13 @@ export function createStore() {
 }
 
 export function appendEvent(store, severity, message) {
-  store.events.unshift({ severity, message, createdAt: new Date().toISOString() });
-  store.events = store.events.slice(0, 30);
+  store.events.unshift({ severity, message: sanitizeMessage(message), createdAt: new Date().toISOString() });
+  store.events = store.events.slice(0, 100);
+}
+
+function sanitizeMessage(message) {
+  return String(message)
+    .replace(/APCA-API-KEY-ID:\s*[^,\s]+/gi, "APCA-API-KEY-ID: [redacted]")
+    .replace(/APCA-API-SECRET-KEY:\s*[^,\s]+/gi, "APCA-API-SECRET-KEY: [redacted]")
+    .replace(/sk-[A-Za-z0-9_-]+/g, "[redacted-key]");
 }

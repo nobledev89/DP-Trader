@@ -1,6 +1,6 @@
 import { readConfig } from "../apps/api/config.js";
 import { createStore, appendEvent } from "../apps/api/store.js";
-import { fetchAlpacaAccount, fetchAlpacaPositions } from "../apps/api/services/alpacaClient.js";
+import { fetchAlpacaAccount, fetchAlpacaOrders, fetchAlpacaPositions } from "../apps/api/services/alpacaClient.js";
 import { configWithRequestCredentials, requestIntegrationStatus } from "../apps/api/services/requestCredentials.js";
 
 const globalState = globalThis.__DP_TRADER_STATE__ || {
@@ -30,12 +30,14 @@ export function send(response, status, payload) {
 
 export async function refreshAlpacaReadOnlyData(config, store) {
   try {
-    const [account, positions] = await Promise.all([
+    const [account, positions, orders] = await Promise.all([
       fetchAlpacaAccount(config),
-      fetchAlpacaPositions(config)
+      fetchAlpacaPositions(config),
+      fetchAlpacaOrders(config)
     ]);
     if (account) store.account = account;
     if (positions) store.positions = positions;
+    if (orders) store.orders = orders;
   } catch (error) {
     appendEvent(store, "warning", error.message);
   }

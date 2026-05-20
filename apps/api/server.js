@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { basename, extname, join, normalize } from "node:path";
 import { readConfig, assertLiveTradingAllowed } from "./config.js";
 import { createStore, appendEvent } from "./store.js";
-import { fetchAlpacaAccount, fetchAlpacaPositions } from "./services/alpacaClient.js";
+import { fetchAlpacaAccount, fetchAlpacaOrders, fetchAlpacaPositions } from "./services/alpacaClient.js";
 import { configWithRequestCredentials, requestIntegrationStatus } from "./services/requestCredentials.js";
 import { generateMarketSnapshot, buildSignals } from "./domain/strategyEngine.js";
 import { scoreSignal } from "./domain/aiScorer.js";
@@ -135,12 +135,14 @@ async function handleApi(req, res, url, cfg, state) {
 
 async function refreshAlpacaReadOnlyData(cfg, state) {
   try {
-    const [account, positions] = await Promise.all([
+    const [account, positions, orders] = await Promise.all([
       fetchAlpacaAccount(cfg),
-      fetchAlpacaPositions(cfg)
+      fetchAlpacaPositions(cfg),
+      fetchAlpacaOrders(cfg)
     ]);
     if (account) state.account = account;
     if (positions) state.positions = positions;
+    if (orders) state.orders = orders;
   } catch (error) {
     appendEvent(state, "warning", error.message);
   }
@@ -226,7 +228,12 @@ function contentType(path) {
 
 async function readBody(req) {
   const chunks = [];
+  let totalBytes = 0;
   for await (const chunk of req) chunks.push(chunk);
+  for (const chunk of chunks) {
+    totalBytes += chunk.length;
+    if (totalBytes > 64 * 1024) throw new Error("Request body too large");
+  }
   const raw = Buffer.concat(chunks).toString("utf8");
   return raw ? JSON.parse(raw) : {};
 }

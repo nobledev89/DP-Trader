@@ -16,16 +16,20 @@ export function evaluateRisk({ signal, account, state, config, now = new Date() 
   const dailyLossPct = account.equity > 0 ? Math.abs(Math.min(0, account.dayPnl)) / account.equity * 100 : 0;
   const rewardRisk = Math.abs(signal.targetPrice - signal.entryPrice) / Math.abs(signal.entryPrice - signal.stopPrice);
   const afterCutoff = isAfterNoNewTradesCutoff(now);
+  const afterForceFlat = isAfterForceFlatTime(now);
 
   if (state.killSwitch) reasons.push("kill_switch_enabled");
   if (dailyLossPct >= config.maxDailyLossPct) reasons.push("daily_loss_limit_reached");
   if (state.openPositions >= config.maxOpenPositions) reasons.push("max_open_positions_reached");
   if (state.tradesLastHour >= config.maxTradesPerHour) reasons.push("max_trades_per_hour_reached");
   if (state.tradesToday >= config.maxTradesPerDay) reasons.push("max_trades_per_day_reached");
+  if (state.executionErrors >= config.maxExecutionErrors) reasons.push("execution_error_circuit_breaker");
   if (signal.spreadPct > config.maxSpreadPct) reasons.push("spread_too_wide");
+  if ((signal.avgVolume || 0) < config.minAvgVolume) reasons.push("average_volume_too_low");
   if (rewardRisk < config.minRewardRisk) reasons.push("reward_risk_too_low");
   if (state.dataStale) reasons.push("market_data_stale");
   if (afterCutoff) reasons.push("after_new_trade_cutoff");
+  if (afterForceFlat) reasons.push("after_force_flat_time");
 
   const sizing = calculatePositionSize({
     equity: account.equity,
@@ -45,6 +49,14 @@ export function evaluateRisk({ signal, account, state, config, now = new Date() 
 }
 
 export function isAfterNoNewTradesCutoff(now) {
+  return isAfterEasternTime(now, 15, 30);
+}
+
+export function isAfterForceFlatTime(now) {
+  return isAfterEasternTime(now, 15, 55);
+}
+
+function isAfterEasternTime(now, cutoffHour, cutoffMinute) {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
     hour: "2-digit",
@@ -53,5 +65,5 @@ export function isAfterNoNewTradesCutoff(now) {
   });
   const parts = Object.fromEntries(formatter.formatToParts(now).map((part) => [part.type, part.value]));
   const minutes = Number(parts.hour) * 60 + Number(parts.minute);
-  return minutes >= (15 * 60 + 30);
+  return minutes >= (cutoffHour * 60 + cutoffMinute);
 }

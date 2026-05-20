@@ -55,6 +55,7 @@ function summarizeStoreForAuto(store, now) {
     openPositions: store.positions.length,
     tradesLastHour: store.orders.filter((order) => Date.parse(order.createdAt) >= hourAgo).length,
     tradesToday: store.orders.filter((order) => Date.parse(order.createdAt) >= startOfDay.getTime()).length,
+    executionErrors: store.executionErrors || 0,
     dataStale: false
   };
 }
