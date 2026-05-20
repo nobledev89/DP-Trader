@@ -1,4 +1,4 @@
-import { query } from "./postgres.js";
+import { hasDatabase, query } from "./postgres.js";
 
 export async function persistEvent(severity, message, metadata = {}) {
   await safeQuery(
@@ -181,7 +181,8 @@ export async function persistAutoTradeCycle(result) {
 }
 
 export async function ensureIntegrationKeyTable() {
-  await safeQuery(
+  if (!hasDatabase()) return;
+  await query(
     `create table if not exists integration_keys (
        integration text primary key,
        payload jsonb not null default '{}'::jsonb,
@@ -209,18 +210,24 @@ export async function loadIntegrationKeys() {
 }
 
 export async function saveIntegrationKey(integration, payload) {
-  await safeQuery(
+  if (!hasDatabase()) return;
+  const result = await query(
     `insert into integration_keys (integration, payload, updated_at)
      values ($1, $2, now())
      on conflict (integration) do update set
        payload = excluded.payload,
-       updated_at = now()`,
+       updated_at = now()
+     returning integration`,
     [integration, payload]
   );
+  if (!result?.rowCount) {
+    throw new Error(`Integration key save failed for ${integration}`);
+  }
 }
 
 export async function deleteIntegrationKey(integration) {
-  await safeQuery(`delete from integration_keys where integration = $1`, [integration]);
+  if (!hasDatabase()) return;
+  await query(`delete from integration_keys where integration = $1`, [integration]);
 }
 
 export async function loadRecentEvents(limit = 100) {

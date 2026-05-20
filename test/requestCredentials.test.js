@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { configWithStoredCredentials, storedIntegrationStatus } from "../apps/api/services/requestCredentials.js";
+import { configWithStoredCredentials, storedIntegrationDetail, storedIntegrationStatus } from "../apps/api/services/requestCredentials.js";
 
 test("layers Postgres-stored keys onto the per-request config", () => {
   const config = {
@@ -46,4 +46,19 @@ test("reports stored integration status from the in-memory store", () => {
   assert.equal(status.anthropic, true);
   assert.equal(status.openai, false);
   assert.equal(status.finnhub, false);
+});
+
+test("reports only last four characters for stored integration fields", () => {
+  const store = {
+    integrations: { alpaca: {}, openai: {} },
+    integrationSecrets: {
+      alpaca: { apiKey: "paper-key-1234", secretKey: "paper-secret-9876" },
+      openai: { apiKey: "sk-test-abcd" }
+    }
+  };
+
+  const detail = storedIntegrationDetail(store);
+  assert.deepEqual(detail.alpaca.suffixes, { apiKey: "1234", secretKey: "9876" });
+  assert.deepEqual(detail.openai.suffixes, { apiKey: "abcd" });
+  assert.equal(JSON.stringify(detail).includes("paper-secret"), false);
 });

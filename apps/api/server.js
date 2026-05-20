@@ -267,7 +267,7 @@ function publicIntegrations(cfg, state) {
   const detail = storedIntegrationDetail(state);
 
   return Object.fromEntries(Object.entries(state.integrations).map(([key, integration]) => {
-    const dbDetail = detail[key] || { configured: false, missing: [], required: ["apiKey"] };
+    const dbDetail = detail[key] || { configured: false, missing: [], required: ["apiKey"], suffixes: {} };
     const configured = Boolean(configuredFromEnv[key] || dbDetail.configured);
     return [key, {
       label: integration.label,
@@ -275,6 +275,7 @@ function publicIntegrations(cfg, state) {
       source: configuredFromEnv[key] ? "environment" : dbDetail.configured ? "database" : "missing",
       missing: dbDetail.missing,
       required: dbDetail.required,
+      suffixes: dbDetail.suffixes,
       updatedAt: integration.updatedAt || null
     }];
   }));
@@ -287,13 +288,14 @@ async function updateIntegrations(body, state) {
     if (!allowed.has(key)) continue;
     const secrets = Object.fromEntries(Object.entries(value).filter(([, secret]) => typeof secret === "string" && secret.trim()));
     if (!Object.keys(secrets).length) continue;
-    state.integrationSecrets[key] = { ...(state.integrationSecrets[key] || {}), ...secrets };
+    const nextSecrets = { ...(state.integrationSecrets[key] || {}), ...secrets };
+    await saveIntegrationKey(key, nextSecrets);
+    state.integrationSecrets[key] = nextSecrets;
     state.integrations[key] = {
       ...state.integrations[key],
       configured: true,
       updatedAt: new Date().toISOString()
     };
-    await saveIntegrationKey(key, state.integrationSecrets[key]);
     updated.push(key);
   }
   return updated;
@@ -305,13 +307,13 @@ async function clearIntegrations(body, state) {
     : Object.keys(state.integrations);
   const removed = [];
   for (const key of targets) {
+    await deleteIntegrationKey(key);
     state.integrationSecrets[key] = {};
     state.integrations[key] = {
       ...state.integrations[key],
       configured: false,
       updatedAt: new Date().toISOString()
     };
-    await deleteIntegrationKey(key);
     removed.push(key);
   }
   return removed;

@@ -476,7 +476,8 @@ function renderSettings(integrations) {
       integration.configured,
       integration.source,
       integration.updatedAt || null,
-      integration.missing || []
+      integration.missing || [],
+      integration.suffixes || {}
     ])
   );
   if (fingerprint === lastIntegrationsFingerprint) return;
@@ -494,11 +495,12 @@ function renderSettings(integrations) {
         ? `Missing field${missing.length === 1 ? "" : "s"}: ${missing.map(title).join(", ")}`
         : "Not configured yet";
     const fields = integration.required || integrationFields[key] || ["apiKey"];
+    const suffixes = integration.suffixes || {};
     return `
     <div class="setting-card">
       <label>${integration.label || title(key)}<span class="${configured ? "up" : "down"}">${sourceLabel}</span></label>
       ${fields.map((field) => `
-        <input autocomplete="off" type="password" placeholder="${fieldPlaceholder(key, field)}" data-integration="${key}" data-field="${field}">
+        <input autocomplete="off" type="password" placeholder="${fieldPlaceholder(key, field, suffixes[field])}" data-integration="${key}" data-field="${field}">
       `).join("")}
       <small class="muted">${hint}</small>
     </div>
@@ -732,7 +734,12 @@ function isAutoPaused() {
   return localStorage.getItem(localPauseKey) === "true";
 }
 
-function fieldPlaceholder(key, field) {
+function fieldPlaceholder(key, field, suffix) {
+  if (suffix) return `${fieldLabel(key, field)} - saved ending ${suffix}`;
+  return fieldLabel(key, field);
+}
+
+function fieldLabel(key, field) {
   if (key === "alpaca" && field === "apiKey") return "Alpaca API Key ID";
   if (key === "alpaca" && field === "secretKey") return "Alpaca Secret Key";
   return title(field);

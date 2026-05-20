@@ -52,7 +52,8 @@ export function storedIntegrationDetail(store) {
     result[key] = {
       configured: missing.length === 0,
       missing,
-      required
+      required,
+      suffixes: secretSuffixes(payload, required)
     };
   }
   return result;
@@ -66,4 +67,13 @@ function hasCompleteSecret(integration, payload) {
 
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function secretSuffixes(payload, fields) {
+  const suffixes = {};
+  for (const field of fields) {
+    if (!isNonEmptyString(payload[field])) continue;
+    suffixes[field] = payload[field].trim().slice(-4);
+  }
+  return suffixes;
 }
