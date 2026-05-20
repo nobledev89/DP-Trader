@@ -1,3 +1,13 @@
+const REQUIRED_FIELDS = {
+  alpaca: ["apiKey", "secretKey"],
+  openai: ["apiKey"],
+  anthropic: ["apiKey"],
+  polygon: ["apiKey"],
+  finnhub: ["apiKey"],
+  twelveData: ["apiKey"],
+  alphaVantage: ["apiKey"]
+};
+
 export function configWithStoredCredentials(config, store) {
   const secrets = store?.integrationSecrets || {};
   const next = { ...config };
@@ -26,12 +36,34 @@ export function storedIntegrationStatus(store) {
   const secrets = store?.integrationSecrets || {};
   const integrations = store?.integrations || {};
   for (const key of Object.keys(integrations)) {
-    result[key] = hasMeaningfulSecret(secrets[key]);
+    result[key] = hasCompleteSecret(key, secrets[key]);
   }
   return result;
 }
 
-function hasMeaningfulSecret(payload) {
+export function storedIntegrationDetail(store) {
+  const result = {};
+  const secrets = store?.integrationSecrets || {};
+  const integrations = store?.integrations || {};
+  for (const key of Object.keys(integrations)) {
+    const required = REQUIRED_FIELDS[key] || ["apiKey"];
+    const payload = secrets[key] || {};
+    const missing = required.filter((field) => !isNonEmptyString(payload[field]));
+    result[key] = {
+      configured: missing.length === 0,
+      missing,
+      required
+    };
+  }
+  return result;
+}
+
+function hasCompleteSecret(integration, payload) {
   if (!payload || typeof payload !== "object") return false;
-  return Object.values(payload).some((value) => typeof value === "string" && value.trim().length > 0);
+  const required = REQUIRED_FIELDS[integration] || ["apiKey"];
+  return required.every((field) => isNonEmptyString(payload[field]));
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
 }

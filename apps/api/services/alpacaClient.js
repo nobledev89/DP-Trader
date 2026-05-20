@@ -1,5 +1,12 @@
 export function hasAlpacaCredentials(config) {
-  return Boolean(config.alpaca.key && config.alpaca.secret);
+  return Boolean(config.alpaca?.key && config.alpaca?.secret);
+}
+
+export function describeMissingAlpacaCredentials(config) {
+  const missing = [];
+  if (!config.alpaca?.key) missing.push("apiKey");
+  if (!config.alpaca?.secret) missing.push("secretKey");
+  return missing;
 }
 
 export async function fetchAlpacaAccount(config) {
@@ -159,7 +166,8 @@ export async function fetchAlpacaBars(config, symbols, { timeframe = "1Min", lim
 export async function submitAlpacaBracketOrder(config, signal, risk) {
   assertPaperTradingEndpoint(config);
   if (!hasAlpacaCredentials(config)) {
-    throw new Error("Alpaca paper credentials are missing");
+    const missing = describeMissingAlpacaCredentials(config);
+    throw new Error(`Alpaca paper credentials are missing (${missing.join(", ")})`);
   }
 
   const limitPrice = marketableLimitPrice(signal, signal.quote);

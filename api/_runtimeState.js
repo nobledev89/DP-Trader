@@ -1,7 +1,7 @@
 import { readConfig } from "../apps/api/config.js";
 import { createStore, appendEvent } from "../apps/api/store.js";
 import { fetchAlpacaAccount, fetchAlpacaOrders, fetchAlpacaPositions } from "../apps/api/services/alpacaClient.js";
-import { configWithStoredCredentials, storedIntegrationStatus } from "../apps/api/services/requestCredentials.js";
+import { configWithStoredCredentials, storedIntegrationDetail } from "../apps/api/services/requestCredentials.js";
 import {
   loadRecentEvents,
   persistAccountSnapshot,
@@ -104,17 +104,20 @@ export function publicIntegrations(config, store) {
     twelveData: Boolean(process.env.TWELVE_DATA_API_KEY),
     alphaVantage: Boolean(process.env.ALPHA_VANTAGE_API_KEY)
   };
-  const dbConfigured = storedIntegrationStatus(store);
+  const detail = storedIntegrationDetail(store);
 
-  return Object.fromEntries(Object.entries(store.integrations).map(([key, integration]) => [
-    key,
-    {
+  return Object.fromEntries(Object.entries(store.integrations).map(([key, integration]) => {
+    const dbDetail = detail[key] || { configured: false, missing: [], required: ["apiKey"] };
+    const configured = Boolean(configuredFromEnv[key] || dbDetail.configured);
+    return [key, {
       label: integration.label,
-      configured: Boolean(configuredFromEnv[key] || dbConfigured[key]),
-      source: configuredFromEnv[key] ? "environment" : dbConfigured[key] ? "database" : "missing",
+      configured,
+      source: configuredFromEnv[key] ? "environment" : dbDetail.configured ? "database" : "missing",
+      missing: dbDetail.missing,
+      required: dbDetail.required,
       updatedAt: integration.updatedAt || null
-    }
-  ]));
+    }];
+  }));
 }
 
 export async function updateIntegrations(body, store) {

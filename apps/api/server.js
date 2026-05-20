@@ -5,7 +5,7 @@ import { basename, extname, join, normalize } from "node:path";
 import { readConfig, assertLiveTradingAllowed } from "./config.js";
 import { createStore, appendEvent } from "./store.js";
 import { cancelAllAlpacaOrders, closeAllAlpacaPositions, fetchAlpacaAccount, fetchAlpacaOrders, fetchAlpacaPositions } from "./services/alpacaClient.js";
-import { configWithStoredCredentials, storedIntegrationStatus } from "./services/requestCredentials.js";
+import { configWithStoredCredentials, storedIntegrationDetail } from "./services/requestCredentials.js";
 import { buildSignals } from "./domain/strategyEngine.js";
 import { loadMarketSnapshot, storeMarketSnapshot } from "./domain/marketData.js";
 import { scoreSignal } from "./domain/aiScorer.js";
@@ -264,17 +264,20 @@ function publicIntegrations(cfg, state) {
     twelveData: Boolean(process.env.TWELVE_DATA_API_KEY),
     alphaVantage: Boolean(process.env.ALPHA_VANTAGE_API_KEY)
   };
-  const dbConfigured = storedIntegrationStatus(state);
+  const detail = storedIntegrationDetail(state);
 
-  return Object.fromEntries(Object.entries(state.integrations).map(([key, integration]) => [
-    key,
-    {
+  return Object.fromEntries(Object.entries(state.integrations).map(([key, integration]) => {
+    const dbDetail = detail[key] || { configured: false, missing: [], required: ["apiKey"] };
+    const configured = Boolean(configuredFromEnv[key] || dbDetail.configured);
+    return [key, {
       label: integration.label,
-      configured: Boolean(configuredFromEnv[key] || dbConfigured[key]),
-      source: configuredFromEnv[key] ? "environment" : dbConfigured[key] ? "database" : "missing",
+      configured,
+      source: configuredFromEnv[key] ? "environment" : dbDetail.configured ? "database" : "missing",
+      missing: dbDetail.missing,
+      required: dbDetail.required,
       updatedAt: integration.updatedAt || null
-    }
-  ]));
+    }];
+  }));
 }
 
 async function updateIntegrations(body, state) {

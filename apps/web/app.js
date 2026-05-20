@@ -475,21 +475,29 @@ function renderSettings(integrations) {
       key,
       integration.configured,
       integration.source,
-      integration.updatedAt || null
+      integration.updatedAt || null,
+      integration.missing || []
     ])
   );
   if (fingerprint === lastIntegrationsFingerprint) return;
   lastIntegrationsFingerprint = fingerprint;
   grid.innerHTML = Object.entries(integrations).map(([key, integration]) => {
     const configured = Boolean(integration.configured);
-    const sourceLabel = configured ? (integration.source === "environment" ? "env" : "saved") : "missing";
+    const missing = integration.missing || [];
+    const incomplete = !configured && missing.length > 0 && missing.length < (integration.required?.length || 1);
+    const sourceLabel = configured
+      ? (integration.source === "environment" ? "env" : "saved")
+      : incomplete ? "incomplete" : "missing";
     const hint = configured
       ? `Saved server-side${integration.updatedAt ? ` · updated ${time(integration.updatedAt)}` : ""}`
-      : "Not configured yet";
+      : incomplete
+        ? `Missing field${missing.length === 1 ? "" : "s"}: ${missing.map(title).join(", ")}`
+        : "Not configured yet";
+    const fields = integration.required || integrationFields[key] || ["apiKey"];
     return `
     <div class="setting-card">
       <label>${integration.label || title(key)}<span class="${configured ? "up" : "down"}">${sourceLabel}</span></label>
-      ${(integrationFields[key] || ["apiKey"]).map((field) => `
+      ${fields.map((field) => `
         <input autocomplete="off" type="password" placeholder="${fieldPlaceholder(key, field)}" data-integration="${key}" data-field="${field}">
       `).join("")}
       <small class="muted">${hint}</small>
@@ -513,12 +521,11 @@ async function saveSettings(event) {
   }
   if (integrations.alpaca) {
     const current = integrationsState.alpaca || {};
-    const hasExistingKey = current.configured;
     const provided = integrations.alpaca;
-    const missingApi = !provided.apiKey && !hasExistingKey;
-    const missingSecret = !provided.secretKey && !hasExistingKey;
-    if (missingApi || missingSecret) {
-      showSettingsMessage("Alpaca needs both API Key ID and Secret Key on first save.", "error");
+    const apiOk = Boolean(provided.apiKey) || (current.configured && !(current.missing || []).includes("apiKey"));
+    const secretOk = Boolean(provided.secretKey) || (current.configured && !(current.missing || []).includes("secretKey"));
+    if (!apiOk || !secretOk) {
+      showSettingsMessage("Alpaca needs both API Key ID and Secret Key.", "error");
       return;
     }
   }
