@@ -65,18 +65,21 @@ test("reports only last four characters for stored integration fields", () => {
 });
 
 test("layers saved risk overrides onto config", () => {
-  const config = { risk: { maxTradesPerDay: 8, maxRiskPerTradePct: 0.1 } };
+  const config = { risk: { maxTradesPerDay: 8, maxRiskPerTradePct: 0.1, minAutoConfidence: 0.62 } };
   const store = { riskOverrides: { maxTradesPerDay: 50 } };
   const result = configWithRiskOverrides(config, store);
 
   assert.equal(result.risk.maxTradesPerDay, 50);
   assert.equal(result.risk.maxRiskPerTradePct, 0.1);
+  assert.equal(result.risk.minAutoConfidence, 0.62);
 });
 
 test("validates risk setting overrides", () => {
-  const defaults = { maxTradesPerDay: 8, maxSpreadPct: 0.08 };
-  assert.deepEqual(sanitizeRiskOverrides({ maxTradesPerDay: "25", maxSpreadPct: "0.08" }, defaults), {
-    maxTradesPerDay: 25
+  const defaults = { maxTradesPerDay: 8, maxSpreadPct: 0.08, minAutoConfidence: 0.62 };
+  assert.deepEqual(sanitizeRiskOverrides({ maxTradesPerDay: "25", maxSpreadPct: "0.08", minAutoConfidence: "0.55" }, defaults), {
+    maxTradesPerDay: 25,
+    minAutoConfidence: 0.55
   });
   assert.throws(() => sanitizeRiskOverrides({ maxTradesPerDay: "-1" }, defaults), /Max trades per day/);
+  assert.throws(() => sanitizeRiskOverrides({ minAutoConfidence: "1" }, defaults), /AI confidence threshold/);
 });

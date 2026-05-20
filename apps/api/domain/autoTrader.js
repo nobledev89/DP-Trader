@@ -5,11 +5,12 @@ import { buildSignals } from "./strategyEngine.js";
 import { marketableLimitPrice, submitAlpacaBracketOrder } from "../services/alpacaClient.js";
 import { appendEvent } from "../store.js";
 
-const MIN_AUTO_CONFIDENCE = 0.62;
+const DEFAULT_MIN_AUTO_CONFIDENCE = 0.62;
 const DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
 const MAX_LLM_CANDIDATES = 3;
 
 export async function runAutoTradeCycle({ config, store, now = new Date() }) {
+  const minAutoConfidence = Number(config.risk?.minAutoConfidence ?? DEFAULT_MIN_AUTO_CONFIDENCE);
   if (store.killSwitch) {
     return { status: "paused", reason: "kill_switch_enabled" };
   }
@@ -62,15 +63,15 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
       marketContext,
       risk: candidate.risk
     });
-    if (ai.decision === "candidate" && ai.probabilityOfSuccess >= MIN_AUTO_CONFIDENCE) {
+    if (ai.decision === "candidate" && ai.probabilityOfSuccess >= minAutoConfidence) {
       chosen = { ...candidate, ai };
       break;
     }
-    appendEvent(store, "info", `AI rejected ${candidate.signal.symbol}: ${ai.rationale || ai.reasonCodes?.join(", ") || "low_confidence"}`);
+    appendEvent(store, "info", `AI rejected ${candidate.signal.symbol}: ${ai.rationale || ai.reasonCodes?.join(", ") || "low_confidence"} (${Math.round(ai.probabilityOfSuccess * 100)}% < ${Math.round(minAutoConfidence * 100)}%)`);
   }
 
   if (!chosen) {
-    return { status: "no_trade", reason: "ai_rejected_all_candidates" };
+    return { status: "no_trade", reason: "ai_rejected_all_candidates", minAutoConfidence };
   }
 
   const alpacaOrder = await submitAlpacaBracketOrder(config, chosen.signal, chosen.risk);

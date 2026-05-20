@@ -742,7 +742,10 @@ function describeAutoTradeResult(result) {
   }
   if (result.status === "no_trade") {
     const rejected = Array.isArray(result.rejected) && result.rejected.length ? ` ${result.rejected.join("; ")}.` : "";
-    return `No trade submitted: ${title(result.reason || "no approved signal")}.${rejected}`;
+    const threshold = result.reason === "ai_rejected_all_candidates" && result.minAutoConfidence
+      ? ` AI threshold ${Math.round(result.minAutoConfidence * 100)}%.`
+      : "";
+    return `No trade submitted: ${title(result.reason || "no approved signal")}.${threshold}${rejected}`;
   }
   if (result.status === "paused") return "AI cycle skipped because trading is paused.";
   if (result.status === "blocked") return `AI blocked: ${result.error || "unknown error"}.`;

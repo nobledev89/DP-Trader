@@ -8,7 +8,8 @@ const RISK_SETTING_FIELDS = {
   maxSpreadPct: { label: "Max spread %", min: 0, max: 100, step: 0.01 },
   minAvgVolume: { label: "Minimum average volume", min: 0, max: 1000000000, step: 1000, integer: true },
   maxExecutionErrors: { label: "Max execution errors", min: 0, max: 100, step: 1, integer: true },
-  maxPositionValuePct: { label: "Max position value %", min: 0, max: 100, step: 0.1 }
+  maxPositionValuePct: { label: "Max position value %", min: 0, max: 100, step: 0.1 },
+  minAutoConfidence: { label: "AI confidence threshold", min: 0.1, max: 0.99, step: 0.01 }
 };
 
 export function riskSettingDefinitions() {
