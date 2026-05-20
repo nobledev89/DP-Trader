@@ -11,6 +11,7 @@ let activeInterval = "15m";
 let autoTradeInFlight = false;
 let lastAutoTradeAt = 0;
 const autoTradeIntervalMs = 60 * 1000;
+const previousPrices = new Map();
 
 const integrationFields = {
   alpaca: ["apiKey", "secretKey"],
@@ -92,6 +93,7 @@ function renderState(data) {
   document.querySelector("#dayPnl").className = data.account.dayPnl >= 0 ? "up" : "down";
   setText("#openPositions", String(data.positions.length));
   setText("#accountSource", `${data.account.source} account`);
+  setText("#lastTick", time(new Date()));
   setText("#riskState", data.risk.killSwitch ? "Paused" : "Ready");
   setText("#riskLimits", `${data.risk.maxRiskPerTradePct}% risk/trade, ${data.risk.maxDailyLossPct}% daily stop`);
   setText("#modeLabel", data.risk.tradingMode.toUpperCase());
@@ -153,7 +155,7 @@ function renderWatchlist(market) {
           <span class="wl-icon" style="background:${symbolIconColor(bar.symbol)}">${initials.slice(0,1)}</span>
           <span class="wl-name">${bar.symbol}</span>
         </div>
-        <span class="wl-price">${money(bar.price)}</span>
+        <span class="wl-price ${priceFlashClass(bar)}">${money(bar.price)}</span>
         <span class="wl-change ${up ? "up" : "down"}">${up ? "+" : ""}${bar.changePct.toFixed(2)}%</span>
       </div>
     `;
@@ -168,6 +170,7 @@ function renderWatchlist(market) {
   });
   const bar = market.find((b) => b.symbol === selectedSymbol);
   if (bar) renderChart(bar);
+  list.forEach((bar) => previousPrices.set(bar.symbol, bar.price));
 }
 
 /* ───── Candlestick chart (synthetic, deterministic per symbol+interval) ───── */
@@ -650,4 +653,10 @@ function escapeHtml(s) {
 }
 
 refresh();
-setInterval(refresh, 30000);
+setInterval(refresh, 5000);
+
+function priceFlashClass(bar) {
+  const previous = previousPrices.get(bar.symbol);
+  if (previous === undefined || previous === bar.price) return "";
+  return bar.price > previous ? "flash-up" : "flash-down";
+}
