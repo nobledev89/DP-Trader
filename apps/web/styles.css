@@ -325,6 +325,7 @@ a { color: var(--accent); text-decoration: none; }
 .metric span { display: block; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
 .metric strong { display: block; margin: 6px 0 4px; font-size: 22px; font-variant-numeric: tabular-nums; }
 .metric small { display: block; color: var(--muted); font-size: 11px; }
+.open-trades-panel { margin-top: 12px; }
 .up { color: var(--green); }
 .down { color: var(--red); }
 
@@ -345,6 +346,7 @@ h2 { font-size: 15px; font-weight: 700; margin: 0 0 12px; padding: 16px 18px 0; 
 }
 .row.header { color: var(--muted); background: transparent; border-color: transparent; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding-bottom: 4px; }
 .portfolio-row { grid-template-columns: 1fr .6fr .8fr .8fr .9fr .9fr; }
+.open-trade-row { grid-template-columns: 1fr .7fr .7fr .8fr .8fr 1.2fr; }
 
 .button {
   border: 1px solid var(--line); color: var(--text); background: var(--panel-2);

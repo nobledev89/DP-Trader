@@ -11,6 +11,7 @@ export function createStore() {
     positions: [],
     orders: [],
     fills: [],
+    lastMarketSnapshot: [],
     executionErrors: 0,
     lastAutoTradeAt: null,
     killSwitch: false,

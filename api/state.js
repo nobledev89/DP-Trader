@@ -1,7 +1,8 @@
 import { assertLiveTradingAllowed } from "../apps/api/config.js";
 import { scoreSignal } from "../apps/api/domain/aiScorer.js";
 import { evaluateRisk } from "../apps/api/domain/riskManager.js";
-import { buildSignals, generateMarketSnapshot } from "../apps/api/domain/strategyEngine.js";
+import { buildSignals } from "../apps/api/domain/strategyEngine.js";
+import { loadMarketSnapshot, storeMarketSnapshot } from "../apps/api/domain/marketData.js";
 import { configForRequest, getRuntime, refreshAlpacaReadOnlyData, send, summarizeState } from "./_runtimeState.js";
 
 export default async function handler(request, response) {
@@ -13,7 +14,8 @@ export default async function handler(request, response) {
   const { config, store } = getRuntime();
   const requestConfig = configForRequest(config, request);
   await refreshAlpacaReadOnlyData(requestConfig, store);
-  const market = generateMarketSnapshot();
+  const market = await loadMarketSnapshot(requestConfig, store);
+  storeMarketSnapshot(store, market);
   const signals = buildSignals(market).map((signal) => {
     const ai = scoreSignal(signal, { spyTrend: "up" });
     const risk = evaluateRisk({

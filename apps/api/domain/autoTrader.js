@@ -1,6 +1,7 @@
 import { scoreSignal } from "./aiScorer.js";
 import { evaluateRisk } from "./riskManager.js";
-import { buildSignals, generateMarketSnapshot } from "./strategyEngine.js";
+import { loadMarketSnapshot } from "./marketData.js";
+import { buildSignals } from "./strategyEngine.js";
 import { submitAlpacaBracketOrder } from "../services/alpacaClient.js";
 import { appendEvent } from "../store.js";
 
@@ -12,7 +13,8 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
     return { status: "paused", reason: "kill_switch_enabled" };
   }
 
-  const candidates = buildSignals(generateMarketSnapshot(now)).map((signal) => {
+  const market = await loadMarketSnapshot(config, store, now);
+  const candidates = buildSignals(market).map((signal) => {
     const ai = scoreSignal(signal, { spyTrend: "up" });
     const risk = evaluateRisk({
       signal,

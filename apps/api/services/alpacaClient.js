@@ -71,6 +71,31 @@ export async function fetchAlpacaOrders(config) {
   }));
 }
 
+export async function fetchAlpacaLatestMarket(config, symbols) {
+  if (!hasAlpacaCredentials(config)) return null;
+  const url = new URL(`${alpacaDataRoot(config)}/stocks/trades/latest`);
+  url.searchParams.set("symbols", symbols.join(","));
+  url.searchParams.set("feed", config.alpaca.dataFeed || "iex");
+  const response = await fetch(url, {
+    headers: alpacaHeaders(config)
+  });
+  if (!response.ok) {
+    throw new Error(`Alpaca latest market data request failed: ${response.status}`);
+  }
+  const body = await response.json();
+  return Object.entries(body.trades || {}).map(([symbol, trade]) => ({
+    symbol,
+    price: Number(trade.p),
+    vwap: Number(trade.p),
+    changePct: 0,
+    relativeVolume: 1,
+    spreadPct: 0.03,
+    avgVolume: 3000000,
+    updatedAt: trade.t || new Date().toISOString(),
+    source: "alpaca_iex"
+  }));
+}
+
 export async function submitAlpacaBracketOrder(config, signal, risk) {
   assertPaperTradingEndpoint(config);
   if (!hasAlpacaCredentials(config)) {
@@ -113,6 +138,10 @@ export async function submitAlpacaBracketOrder(config, signal, risk) {
 export function alpacaApiRoot(config) {
   const base = (config.alpaca.baseUrl || "https://paper-api.alpaca.markets").replace(/\/+$/, "");
   return base.endsWith("/v2") ? base : `${base}/v2`;
+}
+
+export function alpacaDataRoot(config) {
+  return "https://data.alpaca.markets/v2";
 }
 
 export function assertPaperTradingEndpoint(config) {

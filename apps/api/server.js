@@ -6,7 +6,8 @@ import { readConfig, assertLiveTradingAllowed } from "./config.js";
 import { createStore, appendEvent } from "./store.js";
 import { fetchAlpacaAccount, fetchAlpacaOrders, fetchAlpacaPositions } from "./services/alpacaClient.js";
 import { configWithRequestCredentials, requestIntegrationStatus } from "./services/requestCredentials.js";
-import { generateMarketSnapshot, buildSignals } from "./domain/strategyEngine.js";
+import { buildSignals } from "./domain/strategyEngine.js";
+import { loadMarketSnapshot, storeMarketSnapshot } from "./domain/marketData.js";
 import { scoreSignal } from "./domain/aiScorer.js";
 import { evaluateRisk } from "./domain/riskManager.js";
 import { runAutoTradeCycle } from "./domain/autoTrader.js";
@@ -34,7 +35,8 @@ async function handleApi(req, res, url, cfg, state) {
   if (req.method === "GET" && url.pathname === "/api/state") {
     const requestConfig = configWithRequestCredentials(cfg, req.headers);
     await refreshAlpacaReadOnlyData(requestConfig, state);
-    const market = generateMarketSnapshot();
+    const market = await loadMarketSnapshot(requestConfig, state);
+    storeMarketSnapshot(state, market);
     const scoredSignals = buildSignals(market).map((signal) => {
       const ai = scoreSignal(signal, { spyTrend: "up" });
       const risk = evaluateRisk({
@@ -84,12 +86,13 @@ async function handleApi(req, res, url, cfg, state) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/orders/simulate") {
+    const requestConfig = configWithRequestCredentials(cfg, req.headers);
     const body = await readBody(req);
     if (state.killSwitch) {
       sendJson(res, 409, { error: "Kill switch is enabled" });
       return;
     }
-    const market = generateMarketSnapshot();
+    const market = await loadMarketSnapshot(requestConfig, state);
     const signal = buildSignals(market).find((candidate) => candidate.symbol === body.symbol);
     if (!signal) {
       sendJson(res, 404, { error: "Signal not found" });

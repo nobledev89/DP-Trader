@@ -120,6 +120,7 @@ function renderState(data) {
   renderWatchlist(data.market);
   renderSignals(data.signals);
   renderPositions(data.positions);
+  renderOpenTrades(data.positions);
   renderOrders(data.orders);
   renderNews(data.events);
   renderRiskRules(data.risk);
@@ -368,6 +369,24 @@ function renderPositions(positions) {
       </div>
     `).join("")}
   ` : `<p class="body-copy">No open Alpaca paper positions.</p>`;
+}
+
+function renderOpenTrades(positions) {
+  const table = document.querySelector("#openTradesTable");
+  if (!table) return;
+  table.innerHTML = positions.length ? `
+    <div class="row open-trade-row header"><span>Symbol</span><span>Side</span><span>Qty</span><span>Entry</span><span>Now</span><span>P&L</span></div>
+    ${positions.map((position) => `
+      <div class="row open-trade-row">
+        <strong>${position.symbol}</strong>
+        <span>${title(position.side)}</span>
+        <span>${position.qty}</span>
+        <span>${money(position.avgEntryPrice)}</span>
+        <span>${money(position.currentPrice)}</span>
+        <span class="${position.unrealizedPnl >= 0 ? "up" : "down"}">${money(position.unrealizedPnl)} (${percent(position.unrealizedPnlPct)})</span>
+      </div>
+    `).join("")}
+  ` : `<p class="body-copy">No open Alpaca paper positions right now.</p>`;
 }
 
 function renderOrders(orders) {
