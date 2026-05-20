@@ -12,8 +12,9 @@ export function getPool() {
     pool = new pg.Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: { rejectUnauthorized: false },
-      max: Number(process.env.DATABASE_POOL_SIZE || 3),
-      idleTimeoutMillis: 10000
+      max: Number(process.env.DATABASE_POOL_SIZE || 1),
+      idleTimeoutMillis: Number(process.env.DATABASE_IDLE_TIMEOUT_MS || 1000),
+      connectionTimeoutMillis: Number(process.env.DATABASE_CONNECTION_TIMEOUT_MS || 5000)
     });
   }
   return pool;

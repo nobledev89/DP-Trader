@@ -99,21 +99,32 @@ function showPage(pageId) {
   if (location.hash !== `#${pageId}`) {
     history.replaceState(null, "", `#${pageId}`);
   }
+  if (pageId === "settings") {
+    refreshSettingsPanels().catch((error) => showSettingsMessage(`Could not load settings: ${error.message}`, "error"));
+  }
 }
 
 async function refresh() {
-  const [appState, settings, riskSettings] = await Promise.all([
-    fetchJson("/api/state"),
+  const appState = await fetchJson("/api/state");
+  state = appState;
+  renderState(appState);
+  if (isSettingsPageActive()) await refreshSettingsPanels();
+  maybeRunAutoTrade();
+}
+
+async function refreshSettingsPanels() {
+  const [settings, riskSettings] = await Promise.all([
     fetchJson("/api/settings/integrations"),
     fetchJson("/api/settings/risk")
   ]);
-  state = appState;
   integrationsState = settings.integrations || {};
   riskSettingsState = riskSettings.risk || null;
-  renderState(appState);
   renderSettings(integrationsState);
   renderRiskSettings(riskSettingsState);
-  maybeRunAutoTrade();
+}
+
+function isSettingsPageActive() {
+  return document.querySelector("#settings")?.classList.contains("active");
 }
 
 function renderState(data) {
@@ -550,7 +561,6 @@ async function saveRiskSettings(event) {
     riskSettingsState = result.risk;
     lastRiskSettingsFingerprint = null;
     renderRiskSettings(riskSettingsState);
-    await refresh();
     showRiskSettingsMessage("Risk controls saved. Future AI cycles use these limits.", "success");
   } catch (error) {
     showRiskSettingsMessage(`Could not save risk controls: ${error.message}`, "error");
@@ -564,7 +574,6 @@ async function resetRiskSettings() {
     riskSettingsState = result.risk;
     lastRiskSettingsFingerprint = null;
     renderRiskSettings(riskSettingsState);
-    await refresh();
     showRiskSettingsMessage("Risk controls reset to defaults.", "success");
   } catch (error) {
     showRiskSettingsMessage(`Could not reset risk controls: ${error.message}`, "error");
@@ -597,7 +606,7 @@ async function saveSettings(event) {
   try {
     await postJson("/api/settings/integrations", { integrations });
     event.target.reset();
-    await refresh();
+    await refreshSettingsPanels();
     showSettingsMessage("Keys saved to Postgres.", "success");
   } catch (error) {
     showSettingsMessage(`Could not save keys: ${error.message}`, "error");
@@ -608,7 +617,7 @@ async function clearSavedKeys() {
   if (!confirm("Remove all integration keys from the server?")) return;
   try {
     await deleteJson("/api/settings/integrations", { integrations: [] });
-    await refresh();
+    await refreshSettingsPanels();
     showSettingsMessage("Saved keys cleared from server.", "success");
   } catch (error) {
     showSettingsMessage(`Could not clear keys: ${error.message}`, "error");
@@ -652,7 +661,7 @@ async function responseErrorMessage(response) {
 }
 
 async function maybeRunAutoTrade() {
-  if (!integrationsState?.alpaca?.configured) {
+  if (!state?.risk?.alpacaConfigured) {
     logAiActivity("waiting", "Alpaca keys are not configured. Save them in Settings before AI can trade.", {});
     return;
   }
@@ -858,10 +867,16 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+function safeRefresh() {
+  refresh().catch((error) => {
+    setAiTraderStatus("Connection", error.message);
+  });
+}
+
 showPage(location.hash.slice(1) || localStorage.getItem(activePageKey) || "markets");
 window.addEventListener("hashchange", () => showPage(location.hash.slice(1) || "markets"));
-refresh();
-setInterval(refresh, 5000);
+safeRefresh();
+setInterval(safeRefresh, 5000);
 
 function priceFlashClass(bar) {
   const previous = previousPrices.get(bar.symbol);

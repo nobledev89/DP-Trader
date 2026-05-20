@@ -138,7 +138,8 @@ async function handleApi(req, res, url, cfg, state) {
         ...requestConfig.risk,
         killSwitch: state.killSwitch,
         liveTradingArmed: assertLiveTradingAllowed(requestConfig),
-        tradingMode: requestConfig.tradingMode
+        tradingMode: requestConfig.tradingMode,
+        alpacaConfigured: Boolean(requestConfig.alpaca?.key && requestConfig.alpaca?.secret)
       },
       events: state.events
     });

@@ -4,6 +4,7 @@ import { evaluateRisk } from "../apps/api/domain/riskManager.js";
 import { buildSignals } from "../apps/api/domain/strategyEngine.js";
 import { loadMarketSnapshot, storeMarketSnapshot } from "../apps/api/domain/marketData.js";
 import { persistStrategySignals } from "../apps/api/db/persistence.js";
+import { hasAlpacaCredentials } from "../apps/api/services/alpacaClient.js";
 import { configForStore, ensureBootstrap, getRuntime, refreshAlpacaReadOnlyData, refreshPersistedEvents, refreshStoredIntegrationKeys, refreshStoredRiskSettings, send, summarizeState } from "./_runtimeState.js";
 
 export default async function handler(request, response) {
@@ -43,7 +44,8 @@ export default async function handler(request, response) {
       ...requestConfig.risk,
       killSwitch: store.killSwitch,
       liveTradingArmed: assertLiveTradingAllowed(requestConfig),
-      tradingMode: requestConfig.tradingMode
+      tradingMode: requestConfig.tradingMode,
+      alpacaConfigured: hasAlpacaCredentials(requestConfig)
     },
     events: store.events
   });
