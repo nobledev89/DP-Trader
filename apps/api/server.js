@@ -5,7 +5,7 @@ import { basename, extname, join, normalize } from "node:path";
 import { readConfig, assertLiveTradingAllowed } from "./config.js";
 import { createStore, appendEvent } from "./store.js";
 import { cancelAllAlpacaOrders, closeAllAlpacaPositions, fetchAlpacaAccount, fetchAlpacaOrders, fetchAlpacaPositions } from "./services/alpacaClient.js";
-import { configWithRequestCredentials, requestIntegrationStatus } from "./services/requestCredentials.js";
+import { configWithStoredCredentials, storedIntegrationStatus } from "./services/requestCredentials.js";
 import { buildSignals } from "./domain/strategyEngine.js";
 import { loadMarketSnapshot, storeMarketSnapshot } from "./domain/marketData.js";
 import { scoreSignal } from "./domain/aiScorer.js";
@@ -19,12 +19,38 @@ import {
   persistOrder,
   persistOrders,
   persistPositions,
-  persistStrategySignals
+  persistStrategySignals,
+  ensureIntegrationKeyTable,
+  loadIntegrationKeys,
+  saveIntegrationKey,
+  deleteIntegrationKey
 } from "./db/persistence.js";
 
 const config = readConfig();
 const store = createStore();
 const webRoot = join(process.cwd(), "apps", "web");
+
+bootstrapPersistedIntegrationKeys(store).catch((error) => {
+  console.warn(`Integration key bootstrap skipped: ${error.message}`);
+});
+
+async function bootstrapPersistedIntegrationKeys(state) {
+  await ensureIntegrationKeyTable();
+  const stored = await loadIntegrationKeys();
+  for (const [key, value] of Object.entries(stored)) {
+    state.integrationSecrets[key] = value.payload || {};
+    state.integrations[key] = {
+      ...(state.integrations[key] || { label: key }),
+      configured: hasMeaningfulSecret(value.payload),
+      updatedAt: value.updatedAt || new Date().toISOString()
+    };
+  }
+}
+
+function hasMeaningfulSecret(payload) {
+  if (!payload || typeof payload !== "object") return false;
+  return Object.values(payload).some((value) => typeof value === "string" && value.trim().length > 0);
+}
 
 export function createApp({ cfg = config, state = store } = {}) {
   return async function handler(req, res) {
@@ -43,7 +69,7 @@ export function createApp({ cfg = config, state = store } = {}) {
 
 async function handleApi(req, res, url, cfg, state) {
   if (req.method === "GET" && url.pathname === "/api/state") {
-    const requestConfig = configWithRequestCredentials(cfg, req.headers);
+    const requestConfig = configWithStoredCredentials(cfg, state);
     await refreshAlpacaReadOnlyData(requestConfig, state);
     await refreshPersistedEvents(state);
     const market = await loadMarketSnapshot(requestConfig, state);
@@ -86,21 +112,30 @@ async function handleApi(req, res, url, cfg, state) {
   }
 
   if (req.method === "GET" && url.pathname === "/api/settings/integrations") {
-    sendJson(res, 200, { integrations: publicIntegrations(cfg, state, requestIntegrationStatus(cfg, req.headers)) });
+    sendJson(res, 200, { integrations: publicIntegrations(cfg, state) });
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/settings/integrations") {
     const body = await readBody(req);
-    const result = updateIntegrations(body, state);
+    const result = await updateIntegrations(body, state);
     appendEvent(state, "info", "Integration settings updated");
     persistEvent("info", "Integration settings updated", { updated: result }).catch(() => {});
     sendJson(res, 200, { integrations: publicIntegrations(cfg, state), updated: result });
     return;
   }
 
+  if (req.method === "DELETE" && url.pathname === "/api/settings/integrations") {
+    const body = await readBody(req);
+    const removed = await clearIntegrations(body, state);
+    appendEvent(state, "info", `Integration keys cleared: ${removed.join(", ") || "none"}`);
+    persistEvent("info", `Integration keys cleared`, { removed }).catch(() => {});
+    sendJson(res, 200, { integrations: publicIntegrations(cfg, state), removed });
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/orders/simulate") {
-    const requestConfig = configWithRequestCredentials(cfg, req.headers);
+    const requestConfig = configWithStoredCredentials(cfg, state);
     const body = await readBody(req);
     if (state.killSwitch) {
       sendJson(res, 409, { error: "Kill switch is enabled" });
@@ -138,8 +173,9 @@ async function handleApi(req, res, url, cfg, state) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/auto-trade") {
-    const requestConfig = configWithRequestCredentials(cfg, req.headers);
+    const requestConfig = configWithStoredCredentials(cfg, state);
     try {
+      await refreshAlpacaReadOnlyData(requestConfig, state);
       const result = await runAutoTradeCycle({ config: requestConfig, store: state });
       persistAutoTradeCycle(result).catch(() => {});
       sendJson(res, 200, result);
@@ -152,7 +188,7 @@ async function handleApi(req, res, url, cfg, state) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/emergency/cancel-orders") {
-    const requestConfig = configWithRequestCredentials(cfg, req.headers);
+    const requestConfig = configWithStoredCredentials(cfg, state);
     const result = await cancelAllAlpacaOrders(requestConfig);
     state.killSwitch = true;
     appendEvent(state, "warning", "Emergency cancel all Alpaca paper orders requested");
@@ -162,7 +198,7 @@ async function handleApi(req, res, url, cfg, state) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/emergency/close-positions") {
-    const requestConfig = configWithRequestCredentials(cfg, req.headers);
+    const requestConfig = configWithStoredCredentials(cfg, state);
     const result = await closeAllAlpacaPositions(requestConfig);
     state.killSwitch = true;
     appendEvent(state, "warning", "Emergency close all Alpaca paper positions requested");
@@ -218,43 +254,64 @@ function summarizeState(state) {
   };
 }
 
-function publicIntegrations(cfg, state, requestConfigured = {}) {
+function publicIntegrations(cfg, state) {
   const configuredFromEnv = {
     alpaca: Boolean(cfg.alpaca.key && cfg.alpaca.secret),
-    openai: Boolean(process.env.OPENAI_API_KEY),
-    anthropic: Boolean(process.env.ANTHROPIC_API_KEY),
+    openai: Boolean(cfg.openai?.key || process.env.OPENAI_API_KEY),
+    anthropic: Boolean(cfg.anthropic?.key || process.env.ANTHROPIC_API_KEY),
     polygon: Boolean(process.env.POLYGON_API_KEY),
     finnhub: Boolean(process.env.FINNHUB_API_KEY),
     twelveData: Boolean(process.env.TWELVE_DATA_API_KEY),
     alphaVantage: Boolean(process.env.ALPHA_VANTAGE_API_KEY)
   };
+  const dbConfigured = storedIntegrationStatus(state);
 
   return Object.fromEntries(Object.entries(state.integrations).map(([key, integration]) => [
     key,
     {
-      ...integration,
-      configured: Boolean(integration.configured || configuredFromEnv[key] || requestConfigured[key]),
-      source: configuredFromEnv[key] ? "environment" : requestConfigured[key] ? "browser" : integration.configured ? "session" : "missing"
+      label: integration.label,
+      configured: Boolean(configuredFromEnv[key] || dbConfigured[key]),
+      source: configuredFromEnv[key] ? "environment" : dbConfigured[key] ? "database" : "missing",
+      updatedAt: integration.updatedAt || null
     }
   ]));
 }
 
-function updateIntegrations(body, state) {
+async function updateIntegrations(body, state) {
   const allowed = new Set(Object.keys(state.integrations));
   const updated = [];
   for (const [key, value] of Object.entries(body.integrations || {})) {
     if (!allowed.has(key)) continue;
     const secrets = Object.fromEntries(Object.entries(value).filter(([, secret]) => typeof secret === "string" && secret.trim()));
     if (!Object.keys(secrets).length) continue;
-    state.integrationSecrets[key] = secrets;
+    state.integrationSecrets[key] = { ...(state.integrationSecrets[key] || {}), ...secrets };
     state.integrations[key] = {
       ...state.integrations[key],
       configured: true,
       updatedAt: new Date().toISOString()
     };
+    await saveIntegrationKey(key, state.integrationSecrets[key]);
     updated.push(key);
   }
   return updated;
+}
+
+async function clearIntegrations(body, state) {
+  const targets = Array.isArray(body.integrations) && body.integrations.length
+    ? body.integrations.filter((key) => state.integrations[key])
+    : Object.keys(state.integrations);
+  const removed = [];
+  for (const key of targets) {
+    state.integrationSecrets[key] = {};
+    state.integrations[key] = {
+      ...state.integrations[key],
+      configured: false,
+      updatedAt: new Date().toISOString()
+    };
+    await deleteIntegrationKey(key);
+    removed.push(key);
+  }
+  return removed;
 }
 
 async function serveStatic(req, res, url) {

@@ -19,6 +19,14 @@ export function readConfig(env = process.env) {
       baseUrl: env.ALPACA_BASE_URL || "https://paper-api.alpaca.markets",
       dataFeed: env.ALPACA_DATA_FEED || "iex"
     },
+    anthropic: {
+      key: env.ANTHROPIC_API_KEY || "",
+      model: env.ANTHROPIC_MODEL || "claude-sonnet-4-6"
+    },
+    openai: {
+      key: env.OPENAI_API_KEY || "",
+      model: env.OPENAI_MODEL || "gpt-4o-mini"
+    },
     risk: {
       maxDailyLossPct: number("MAX_DAILY_LOSS_PCT", 0.75),
       maxRiskPerTradePct: number("MAX_RISK_PER_TRADE_PCT", 0.1),

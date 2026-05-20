@@ -1,9 +1,7 @@
 const pages = [...document.querySelectorAll(".page")];
 const navItems = [...document.querySelectorAll(".nav-item")];
 let state = null;
-let unlockedIntegrations = {};
-let vaultUnlocked = false;
-const vaultKey = "dpTraderEncryptedIntegrations";
+let integrationsState = {};
 
 let selectedSymbol = null;
 let activeFilter = "popular";
@@ -16,20 +14,9 @@ let aiLogs = readAiLogs();
 const activePageKey = "dpTraderActivePage";
 const localOrdersKey = "dpTraderLocalOrders";
 const llmUsageKey = "dpTraderLlmUsage";
-const sessionVaultKey = "dpTraderSessionVault";
 const localPauseKey = "dpTraderAutoPaused";
 
 const integrationFields = {
-  alpaca: ["apiKey", "secretKey"],
-  openai: ["apiKey"],
-  anthropic: ["apiKey"],
-  polygon: ["apiKey"],
-  finnhub: ["apiKey"],
-  twelveData: ["apiKey"],
-  alphaVantage: ["apiKey"]
-};
-
-const integrationRequirements = {
   alpaca: ["apiKey", "secretKey"],
   openai: ["apiKey"],
   anthropic: ["apiKey"],
@@ -72,8 +59,7 @@ async function emergencyAction(action) {
   }
 }
 document.querySelector("#settingsForm").addEventListener("submit", saveSettings);
-document.querySelector("#unlockVaultButton").addEventListener("click", unlockVault);
-document.querySelector("#clearVaultButton").addEventListener("click", clearVault);
+document.querySelector("#clearKeysButton").addEventListener("click", clearSavedKeys);
 document.querySelector("#cancelOrdersButton").addEventListener("click", () => emergencyAction("cancel-orders"));
 document.querySelector("#closePositionsButton").addEventListener("click", () => emergencyAction("close-positions"));
 
@@ -118,8 +104,9 @@ async function refresh() {
     fetchJson("/api/settings/integrations")
   ]);
   state = appState;
+  integrationsState = settings.integrations || {};
   renderState(appState);
-  renderSettings(settings.integrations);
+  renderSettings(integrationsState);
   maybeRunAutoTrade();
 }
 
@@ -477,21 +464,18 @@ function renderModelBars(signals) {
   `).join("");
 }
 
-/* ───── Settings (preserved) ───── */
+/* ───── Settings ───── */
 function renderSettings(integrations) {
   const grid = document.querySelector("#settingsGrid");
-  const saved = Boolean(localStorage.getItem(vaultKey));
-  const vaultStatus = document.querySelector("#vaultStatus");
-  vaultStatus.textContent = vaultUnlocked ? "Unlocked" : saved ? "Saved locked vault" : "No saved vault";
-  vaultStatus.className = vaultUnlocked ? "pill safe" : "pill danger-pill";
   grid.innerHTML = Object.entries(integrations).map(([key, integration]) => {
-    const local = localIntegrationStatus(key);
-    const configured = local.configured || integration.configured;
-    const source = local.configured ? "browser" : integration.source;
-    const hint = local.missing.length ? `Missing ${local.missing.map(title).join(", ")}` : "Ready when vault is unlocked";
+    const configured = Boolean(integration.configured);
+    const sourceLabel = configured ? (integration.source === "environment" ? "env" : "saved") : "missing";
+    const hint = configured
+      ? `Saved server-side${integration.updatedAt ? ` · updated ${time(integration.updatedAt)}` : ""}`
+      : "Not configured yet";
     return `
     <div class="setting-card">
-      <label>${integration.label}<span class="${configured ? "up" : "down"}">${source}</span></label>
+      <label>${integration.label || title(key)}<span class="${configured ? "up" : "down"}">${sourceLabel}</span></label>
       ${(integrationFields[key] || ["apiKey"]).map((field) => `
         <input autocomplete="off" type="password" placeholder="${fieldPlaceholder(key, field)}" data-integration="${key}" data-field="${field}">
       `).join("")}
@@ -504,11 +488,6 @@ function renderSettings(integrations) {
 async function saveSettings(event) {
   event.preventDefault();
   showSettingsMessage("", "");
-  const passphrase = document.querySelector("#vaultPassphrase").value;
-  if (!passphrase) {
-    showSettingsMessage("Enter a vault passphrase before saving keys.", "error");
-    return;
-  }
   const integrations = {};
   document.querySelectorAll("[data-integration]").forEach((input) => {
     if (!input.value.trim()) return;
@@ -519,27 +498,40 @@ async function saveSettings(event) {
     showSettingsMessage("Enter at least one key before saving.", "error");
     return;
   }
-  const nextIntegrations = mergeSecrets(unlockedIntegrations, integrations);
-  if (integrations.alpaca && (!nextIntegrations.alpaca?.apiKey || !nextIntegrations.alpaca?.secretKey)) {
-    showSettingsMessage("Alpaca needs both API Key ID and Secret Key. Enter both fields before saving Alpaca.", "error");
-    return;
+  if (integrations.alpaca) {
+    const current = integrationsState.alpaca || {};
+    const hasExistingKey = current.configured;
+    const provided = integrations.alpaca;
+    const missingApi = !provided.apiKey && !hasExistingKey;
+    const missingSecret = !provided.secretKey && !hasExistingKey;
+    if (missingApi || missingSecret) {
+      showSettingsMessage("Alpaca needs both API Key ID and Secret Key on first save.", "error");
+      return;
+    }
   }
   try {
-    unlockedIntegrations = nextIntegrations;
-    const savedMode = await saveBrowserVault(passphrase, unlockedIntegrations);
-    saveSessionVault(unlockedIntegrations);
-    vaultUnlocked = true;
+    await postJson("/api/settings/integrations", { integrations });
     event.target.reset();
-    document.querySelector("#vaultPassphrase").value = passphrase;
     await refresh();
-    showSettingsMessage(savedMode === "encrypted" ? "Saved to encrypted browser vault." : "Saved to browser vault. This browser does not support encrypted storage here.", "success");
+    showSettingsMessage("Keys saved to Postgres.", "success");
   } catch (error) {
     showSettingsMessage(`Could not save keys: ${error.message}`, "error");
   }
 }
 
+async function clearSavedKeys() {
+  if (!confirm("Remove all integration keys from the server?")) return;
+  try {
+    await deleteJson("/api/settings/integrations", { integrations: [] });
+    await refresh();
+    showSettingsMessage("Saved keys cleared from server.", "success");
+  } catch (error) {
+    showSettingsMessage(`Could not clear keys: ${error.message}`, "error");
+  }
+}
+
 async function fetchJson(url) {
-  const response = await fetch(url, { headers: credentialHeaders() });
+  const response = await fetch(url);
   if (!response.ok) throw new Error(await response.text());
   return response.json();
 }
@@ -547,70 +539,26 @@ async function fetchJson(url) {
 async function postJson(url, body) {
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...credentialHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
   if (!response.ok) throw new Error(await response.text());
   return response.json();
 }
 
-async function unlockVault() {
-  const passphrase = document.querySelector("#vaultPassphrase").value;
-  if (!passphrase) {
-    alert("Enter the passphrase you used when saving the vault.");
-    return;
-  }
-  const stored = localStorage.getItem(vaultKey);
-  if (!stored) {
-    vaultUnlocked = true;
-    unlockedIntegrations = {};
-    await refresh();
-    return;
-  }
-  try {
-    unlockedIntegrations = await readBrowserVault(passphrase, JSON.parse(stored));
-    saveSessionVault(unlockedIntegrations);
-    vaultUnlocked = true;
-    await refresh();
-    showSettingsMessage("Browser vault unlocked.", "success");
-  } catch {
-    showSettingsMessage("Could not unlock the saved key vault. Check the passphrase.", "error");
-  }
-}
-
-async function clearVault() {
-  localStorage.removeItem(vaultKey);
-  localStorage.removeItem(aiLogsKey());
-  sessionStorage.removeItem(sessionVaultKey);
-  unlockedIntegrations = {};
-  aiLogs = [];
-  vaultUnlocked = false;
-  document.querySelector("#vaultPassphrase").value = "";
-  await refresh();
-  showSettingsMessage("Saved browser keys cleared.", "success");
-}
-
-function credentialHeaders() {
-  if (!vaultUnlocked) return {};
-  return {
-    ...(unlockedIntegrations.alpaca?.apiKey ? { "X-DPT-Alpaca-Key": unlockedIntegrations.alpaca.apiKey } : {}),
-    ...(unlockedIntegrations.alpaca?.secretKey ? { "X-DPT-Alpaca-Secret": unlockedIntegrations.alpaca.secretKey } : {}),
-    ...(unlockedIntegrations.openai?.apiKey ? { "X-DPT-OpenAI-Key": unlockedIntegrations.openai.apiKey } : {}),
-    ...(unlockedIntegrations.anthropic?.apiKey ? { "X-DPT-Anthropic-Key": unlockedIntegrations.anthropic.apiKey } : {}),
-    ...(unlockedIntegrations.polygon?.apiKey ? { "X-DPT-Polygon-Key": unlockedIntegrations.polygon.apiKey } : {}),
-    ...(unlockedIntegrations.finnhub?.apiKey ? { "X-DPT-Finnhub-Key": unlockedIntegrations.finnhub.apiKey } : {}),
-    ...(unlockedIntegrations.twelveData?.apiKey ? { "X-DPT-Twelve-Data-Key": unlockedIntegrations.twelveData.apiKey } : {}),
-    ...(unlockedIntegrations.alphaVantage?.apiKey ? { "X-DPT-Alpha-Vantage-Key": unlockedIntegrations.alphaVantage.apiKey } : {})
-  };
+async function deleteJson(url, body) {
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {})
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
 }
 
 async function maybeRunAutoTrade() {
-  if (!vaultUnlocked) {
-    logAiActivity("waiting", "Vault locked. Unlock Alpaca keys before AI can trade.", {});
-    return;
-  }
-  if (!localIntegrationStatus("alpaca").configured) {
-    logAiActivity("waiting", "Alpaca browser keys are missing. AI cannot submit paper orders.", {});
+  if (!integrationsState?.alpaca?.configured) {
+    logAiActivity("waiting", "Alpaca keys are not configured. Save them in Settings before AI can trade.", {});
     return;
   }
   if (isAutoPaused() || state?.risk?.killSwitch) {
@@ -677,21 +625,6 @@ function saveAiLogs() {
 
 function aiLogsKey() {
   return "dpTraderAiLogs";
-}
-
-function saveSessionVault(integrations) {
-  sessionStorage.setItem(sessionVaultKey, JSON.stringify(integrations));
-}
-
-function restoreSessionVault() {
-  try {
-    const stored = sessionStorage.getItem(sessionVaultKey);
-    if (!stored) return;
-    unlockedIntegrations = JSON.parse(stored);
-    vaultUnlocked = true;
-  } catch {
-    sessionStorage.removeItem(sessionVaultKey);
-  }
 }
 
 function describeAutoTradeResult(result) {
@@ -775,16 +708,6 @@ function statusClass(status) {
   return "";
 }
 
-function localIntegrationStatus(key) {
-  const required = integrationRequirements[key] || ["apiKey"];
-  const saved = unlockedIntegrations[key] || {};
-  const missing = vaultUnlocked ? required.filter((field) => !saved[field]) : required;
-  return {
-    configured: vaultUnlocked && missing.length === 0,
-    missing
-  };
-}
-
 function isAutoPaused() {
   return localStorage.getItem(localPauseKey) === "true";
 }
@@ -793,107 +716,6 @@ function fieldPlaceholder(key, field) {
   if (key === "alpaca" && field === "apiKey") return "Alpaca API Key ID";
   if (key === "alpaca" && field === "secretKey") return "Alpaca Secret Key";
   return title(field);
-}
-
-function mergeSecrets(current, next) {
-  const merged = structuredClone(current || {});
-  for (const [integration, fields] of Object.entries(next)) {
-    merged[integration] = { ...(merged[integration] || {}), ...fields };
-  }
-  return merged;
-}
-
-async function saveEncryptedVault(passphrase, integrations) {
-  if (!globalThis.crypto?.subtle) {
-    throw new Error("Web Crypto is unavailable");
-  }
-  const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
-  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
-  const key = await deriveVaultKey(passphrase, salt);
-  const encrypted = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    key,
-    new TextEncoder().encode(JSON.stringify(integrations))
-  );
-  localStorage.setItem(vaultKey, JSON.stringify({
-    version: 1,
-    mode: "encrypted",
-    salt: toBase64(salt),
-    iv: toBase64(iv),
-    data: toBase64(new Uint8Array(encrypted))
-  }));
-}
-
-async function decryptVault(passphrase, vault) {
-  if (!globalThis.crypto?.subtle) {
-    throw new Error("Web Crypto is unavailable");
-  }
-  const salt = fromBase64(vault.salt);
-  const iv = fromBase64(vault.iv);
-  const key = await deriveVaultKey(passphrase, salt);
-  const decrypted = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv },
-    key,
-    fromBase64(vault.data)
-  );
-  return JSON.parse(new TextDecoder().decode(decrypted));
-}
-
-async function saveBrowserVault(passphrase, integrations) {
-  try {
-    await saveEncryptedVault(passphrase, integrations);
-    return "encrypted";
-  } catch {
-    localStorage.setItem(vaultKey, JSON.stringify({
-      version: 1,
-      mode: "browser",
-      passphraseHash: await weakPassphraseHash(passphrase),
-      data: toBase64(new TextEncoder().encode(JSON.stringify(integrations)))
-    }));
-    return "browser";
-  }
-}
-
-async function readBrowserVault(passphrase, vault) {
-  if (vault.mode === "browser") {
-    if (vault.passphraseHash !== await weakPassphraseHash(passphrase)) {
-      throw new Error("Invalid passphrase");
-    }
-    return JSON.parse(new TextDecoder().decode(fromBase64(vault.data)));
-  }
-  return decryptVault(passphrase, vault);
-}
-
-async function deriveVaultKey(passphrase, salt) {
-  const baseKey = await globalThis.crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(passphrase),
-    "PBKDF2",
-    false,
-    ["deriveKey"]
-  );
-  return globalThis.crypto.subtle.deriveKey(
-    { name: "PBKDF2", salt, iterations: 250000, hash: "SHA-256" },
-    baseKey,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"]
-  );
-}
-
-function toBase64(bytes) { return btoa(String.fromCharCode(...bytes)); }
-function fromBase64(value) { return Uint8Array.from(atob(value), (char) => char.charCodeAt(0)); }
-
-async function weakPassphraseHash(passphrase) {
-  if (globalThis.crypto?.subtle) {
-    const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(passphrase));
-    return toBase64(new Uint8Array(digest));
-  }
-  let hash = 0;
-  for (let index = 0; index < passphrase.length; index += 1) {
-    hash = ((hash << 5) - hash + passphrase.charCodeAt(index)) | 0;
-  }
-  return String(hash);
 }
 
 function showSettingsMessage(message, type) {
@@ -926,7 +748,6 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-restoreSessionVault();
 showPage(location.hash.slice(1) || localStorage.getItem(activePageKey) || "markets");
 window.addEventListener("hashchange", () => showPage(location.hash.slice(1) || "markets"));
 refresh();

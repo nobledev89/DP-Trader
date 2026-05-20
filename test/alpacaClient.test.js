@@ -81,7 +81,12 @@ test("can request emergency Alpaca position close", async () => {
   }
 });
 
-test("uses a small marketable limit offset for paper entry orders", () => {
-  assert.equal(marketableLimitPrice({ direction: "long", entryPrice: 100 }), 100.1);
-  assert.equal(marketableLimitPrice({ direction: "short", entryPrice: 100 }), 99.9);
+test("uses a small marketable limit offset for paper entry orders without a quote", () => {
+  assert.equal(marketableLimitPrice({ direction: "long", entryPrice: 100 }), 100.25);
+  assert.equal(marketableLimitPrice({ direction: "short", entryPrice: 100 }), 99.75);
+});
+
+test("pegs the marketable limit to live ask/bid when a quote is supplied", () => {
+  assert.equal(marketableLimitPrice({ direction: "long" }, { bid: 199.98, ask: 200.02 }), 200.52);
+  assert.equal(marketableLimitPrice({ direction: "short" }, { bid: 199.98, ask: 200.02 }), 199.48);
 });

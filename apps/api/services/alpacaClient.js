@@ -96,13 +96,73 @@ export async function fetchAlpacaLatestMarket(config, symbols) {
   }));
 }
 
+export async function fetchAlpacaLatestQuotes(config, symbols) {
+  if (!hasAlpacaCredentials(config)) return null;
+  const url = new URL(`${alpacaDataRoot(config)}/stocks/quotes/latest`);
+  url.searchParams.set("symbols", symbols.join(","));
+  url.searchParams.set("feed", config.alpaca.dataFeed || "iex");
+  const response = await fetch(url, {
+    headers: alpacaHeaders(config)
+  });
+  if (!response.ok) {
+    throw new Error(`Alpaca latest quote request failed: ${response.status}`);
+  }
+  const body = await response.json();
+  return Object.entries(body.quotes || {}).map(([symbol, quote]) => {
+    const bid = Number(quote.bp) || 0;
+    const ask = Number(quote.ap) || 0;
+    const mid = bid && ask ? Number(((bid + ask) / 2).toFixed(4)) : ask || bid;
+    return {
+      symbol,
+      bid,
+      ask,
+      mid,
+      bidSize: Number(quote.bs) || 0,
+      askSize: Number(quote.as) || 0,
+      spread: Number((ask - bid).toFixed(4)),
+      spreadPct: mid ? Number((((ask - bid) / mid) * 100).toFixed(4)) : 0,
+      updatedAt: quote.t || new Date().toISOString()
+    };
+  });
+}
+
+export async function fetchAlpacaBars(config, symbols, { timeframe = "1Min", limit = 60 } = {}) {
+  if (!hasAlpacaCredentials(config)) return null;
+  const url = new URL(`${alpacaDataRoot(config)}/stocks/bars`);
+  url.searchParams.set("symbols", symbols.join(","));
+  url.searchParams.set("timeframe", timeframe);
+  url.searchParams.set("limit", String(limit));
+  url.searchParams.set("feed", config.alpaca.dataFeed || "iex");
+  url.searchParams.set("adjustment", "raw");
+  const response = await fetch(url, {
+    headers: alpacaHeaders(config)
+  });
+  if (!response.ok) {
+    throw new Error(`Alpaca bars request failed: ${response.status}`);
+  }
+  const body = await response.json();
+  const result = {};
+  for (const [symbol, bars] of Object.entries(body.bars || {})) {
+    result[symbol] = (bars || []).map((bar) => ({
+      t: bar.t,
+      open: Number(bar.o),
+      high: Number(bar.h),
+      low: Number(bar.l),
+      close: Number(bar.c),
+      volume: Number(bar.v) || 0,
+      vwap: Number(bar.vw) || Number(bar.c)
+    }));
+  }
+  return result;
+}
+
 export async function submitAlpacaBracketOrder(config, signal, risk) {
   assertPaperTradingEndpoint(config);
   if (!hasAlpacaCredentials(config)) {
     throw new Error("Alpaca paper credentials are missing");
   }
 
-  const limitPrice = marketableLimitPrice(signal);
+  const limitPrice = marketableLimitPrice(signal, signal.quote);
   const payload = {
     symbol: signal.symbol,
     qty: String(risk.shares),
@@ -136,8 +196,15 @@ export async function submitAlpacaBracketOrder(config, signal, risk) {
   return body;
 }
 
-export function marketableLimitPrice(signal) {
-  const multiplier = signal.direction === "long" ? 1.001 : 0.999;
+export function marketableLimitPrice(signal, quote) {
+  const bufferBps = 0.0025;
+  if (quote && Number(quote.ask) > 0 && Number(quote.bid) > 0) {
+    if (signal.direction === "long") {
+      return Number((Number(quote.ask) * (1 + bufferBps)).toFixed(2));
+    }
+    return Number((Number(quote.bid) * (1 - bufferBps)).toFixed(2));
+  }
+  const multiplier = signal.direction === "long" ? 1 + bufferBps : 1 - bufferBps;
   return Number((signal.entryPrice * multiplier).toFixed(2));
 }
 

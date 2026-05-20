@@ -1,35 +1,49 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { configWithRequestCredentials, requestIntegrationStatus } from "../apps/api/services/requestCredentials.js";
+import { configWithStoredCredentials, storedIntegrationStatus } from "../apps/api/services/requestCredentials.js";
 
-test("overrides Alpaca credentials from browser request headers", () => {
+test("layers Postgres-stored keys onto the per-request config", () => {
   const config = {
-    alpaca: {
-      key: "",
-      secret: "",
-      baseUrl: "https://paper-api.alpaca.markets"
+    alpaca: { key: "", secret: "", baseUrl: "https://paper-api.alpaca.markets" },
+    anthropic: {},
+    openai: {}
+  };
+  const store = {
+    integrationSecrets: {
+      alpaca: { apiKey: "paper-key", secretKey: "paper-secret" },
+      anthropic: { apiKey: "anthropic-key" },
+      openai: { apiKey: "openai-key" }
     }
   };
 
-  const result = configWithRequestCredentials(config, {
-    "x-dpt-alpaca-key": "paper-key",
-    "x-dpt-alpaca-secret": "paper-secret"
-  });
-
+  const result = configWithStoredCredentials(config, store);
   assert.equal(result.alpaca.key, "paper-key");
   assert.equal(result.alpaca.secret, "paper-secret");
+  assert.equal(result.anthropic.key, "anthropic-key");
+  assert.equal(result.openai.key, "openai-key");
 });
 
-test("reports unlocked browser integrations from headers", () => {
-  const status = requestIntegrationStatus({}, {
-    "x-dpt-alpaca-key": "paper-key",
-    "x-dpt-alpaca-secret": "paper-secret",
-    "x-dpt-openai-key": "openai-key",
-    "x-dpt-anthropic-key": "anthropic-key"
-  });
+test("does not touch alpaca config when only one half of the pair is stored", () => {
+  const config = { alpaca: { key: "env-key", secret: "env-secret" } };
+  const store = { integrationSecrets: { alpaca: { apiKey: "paper-key" } } };
 
+  const result = configWithStoredCredentials(config, store);
+  assert.equal(result.alpaca.key, "env-key");
+  assert.equal(result.alpaca.secret, "env-secret");
+});
+
+test("reports stored integration status from the in-memory store", () => {
+  const store = {
+    integrations: { alpaca: {}, anthropic: {}, openai: {}, finnhub: {} },
+    integrationSecrets: {
+      alpaca: { apiKey: "a", secretKey: "b" },
+      anthropic: { apiKey: "c" }
+    }
+  };
+
+  const status = storedIntegrationStatus(store);
   assert.equal(status.alpaca, true);
-  assert.equal(status.openai, true);
   assert.equal(status.anthropic, true);
+  assert.equal(status.openai, false);
   assert.equal(status.finnhub, false);
 });

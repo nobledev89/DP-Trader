@@ -1,22 +1,43 @@
 import { readConfig } from "../apps/api/config.js";
 import { createStore, appendEvent } from "../apps/api/store.js";
 import { fetchAlpacaAccount, fetchAlpacaOrders, fetchAlpacaPositions } from "../apps/api/services/alpacaClient.js";
-import { configWithRequestCredentials, requestIntegrationStatus } from "../apps/api/services/requestCredentials.js";
-import { loadRecentEvents, persistAccountSnapshot, persistEvent, persistOrders, persistPositions } from "../apps/api/db/persistence.js";
+import { configWithStoredCredentials, storedIntegrationStatus } from "../apps/api/services/requestCredentials.js";
+import {
+  loadRecentEvents,
+  persistAccountSnapshot,
+  persistEvent,
+  persistOrders,
+  persistPositions,
+  ensureIntegrationKeyTable,
+  loadIntegrationKeys,
+  saveIntegrationKey,
+  deleteIntegrationKey
+} from "../apps/api/db/persistence.js";
 
 const globalState = globalThis.__DP_TRADER_STATE__ || {
   store: createStore(),
-  config: readConfig()
+  config: readConfig(),
+  bootstrap: null
 };
 
 globalThis.__DP_TRADER_STATE__ = globalState;
+
+if (!globalState.bootstrap) {
+  globalState.bootstrap = bootstrapPersistedIntegrationKeys(globalState.store).catch((error) => {
+    console.warn(`Integration key bootstrap skipped: ${error.message}`);
+  });
+}
 
 export function getRuntime() {
   return globalState;
 }
 
-export function configForRequest(config, request) {
-  return configWithRequestCredentials(config, request.headers || {});
+export async function ensureBootstrap() {
+  if (globalState.bootstrap) await globalState.bootstrap;
+}
+
+export function configForStore(config, store) {
+  return configWithStoredCredentials(config, store);
 }
 
 export async function readBody(request) {
@@ -73,42 +94,80 @@ export function summarizeState(store) {
   };
 }
 
-export function publicIntegrations(config, store, request = null) {
-  const requestConfigured = request ? requestIntegrationStatus(config, request.headers || {}) : {};
+export function publicIntegrations(config, store) {
   const configuredFromEnv = {
     alpaca: Boolean(config.alpaca.key && config.alpaca.secret),
-    openai: Boolean(process.env.OPENAI_API_KEY),
-    anthropic: Boolean(process.env.ANTHROPIC_API_KEY),
+    openai: Boolean(config.openai?.key || process.env.OPENAI_API_KEY),
+    anthropic: Boolean(config.anthropic?.key || process.env.ANTHROPIC_API_KEY),
     polygon: Boolean(process.env.POLYGON_API_KEY),
     finnhub: Boolean(process.env.FINNHUB_API_KEY),
     twelveData: Boolean(process.env.TWELVE_DATA_API_KEY),
     alphaVantage: Boolean(process.env.ALPHA_VANTAGE_API_KEY)
   };
+  const dbConfigured = storedIntegrationStatus(store);
 
   return Object.fromEntries(Object.entries(store.integrations).map(([key, integration]) => [
     key,
     {
-      ...integration,
-      configured: Boolean(integration.configured || configuredFromEnv[key] || requestConfigured[key]),
-      source: configuredFromEnv[key] ? "environment" : requestConfigured[key] ? "browser" : integration.configured ? "session" : "missing"
+      label: integration.label,
+      configured: Boolean(configuredFromEnv[key] || dbConfigured[key]),
+      source: configuredFromEnv[key] ? "environment" : dbConfigured[key] ? "database" : "missing",
+      updatedAt: integration.updatedAt || null
     }
   ]));
 }
 
-export function updateIntegrations(body, store) {
+export async function updateIntegrations(body, store) {
   const allowed = new Set(Object.keys(store.integrations));
   const updated = [];
   for (const [key, value] of Object.entries(body.integrations || {})) {
     if (!allowed.has(key)) continue;
     const secrets = Object.fromEntries(Object.entries(value).filter(([, secret]) => typeof secret === "string" && secret.trim()));
     if (!Object.keys(secrets).length) continue;
-    store.integrationSecrets[key] = secrets;
+    store.integrationSecrets[key] = { ...(store.integrationSecrets[key] || {}), ...secrets };
     store.integrations[key] = {
       ...store.integrations[key],
       configured: true,
       updatedAt: new Date().toISOString()
     };
+    await saveIntegrationKey(key, store.integrationSecrets[key]);
     updated.push(key);
   }
   return updated;
+}
+
+export async function clearIntegrations(body, store) {
+  const targets = Array.isArray(body.integrations) && body.integrations.length
+    ? body.integrations.filter((key) => store.integrations[key])
+    : Object.keys(store.integrations);
+  const removed = [];
+  for (const key of targets) {
+    store.integrationSecrets[key] = {};
+    store.integrations[key] = {
+      ...store.integrations[key],
+      configured: false,
+      updatedAt: new Date().toISOString()
+    };
+    await deleteIntegrationKey(key);
+    removed.push(key);
+  }
+  return removed;
+}
+
+async function bootstrapPersistedIntegrationKeys(store) {
+  await ensureIntegrationKeyTable();
+  const stored = await loadIntegrationKeys();
+  for (const [key, value] of Object.entries(stored)) {
+    store.integrationSecrets[key] = value.payload || {};
+    store.integrations[key] = {
+      ...(store.integrations[key] || { label: key }),
+      configured: hasMeaningfulSecret(value.payload),
+      updatedAt: value.updatedAt || new Date().toISOString()
+    };
+  }
+}
+
+function hasMeaningfulSecret(payload) {
+  if (!payload || typeof payload !== "object") return false;
+  return Object.values(payload).some((value) => typeof value === "string" && value.trim().length > 0);
 }

@@ -119,3 +119,9 @@ create table if not exists llm_usage (
 );
 
 create index if not exists llm_usage_created_at_idx on llm_usage (created_at desc);
+
+create table if not exists integration_keys (
+  integration text primary key,
+  payload jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);

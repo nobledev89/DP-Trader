@@ -5,9 +5,9 @@
   "description": "AI-assisted paper trading dashboard and local API for Alpaca-style workflows.",
   "type": "module",
   "scripts": {
-    "start": "node apps/api/server.js",
-    "dev": "node apps/api/server.js",
-    "db:migrate": "node scripts/migrate.js",
+    "start": "node --env-file=.env apps/api/server.js",
+    "dev": "node --env-file=.env apps/api/server.js",
+    "db:migrate": "node --env-file=.env scripts/migrate.js",
     "test": "node --test",
     "lint": "node scripts/lint.js",
     "build": "node scripts/build.js",

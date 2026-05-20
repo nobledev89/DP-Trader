@@ -180,6 +180,49 @@ export async function persistAutoTradeCycle(result) {
   if (result.risk) await persistRiskDecision(result.order?.symbol, result.risk);
 }
 
+export async function ensureIntegrationKeyTable() {
+  await safeQuery(
+    `create table if not exists integration_keys (
+       integration text primary key,
+       payload jsonb not null default '{}'::jsonb,
+       updated_at timestamptz not null default now()
+     )`,
+    []
+  );
+}
+
+export async function loadIntegrationKeys() {
+  try {
+    const result = await query(`select integration, payload, updated_at from integration_keys`, []);
+    const map = {};
+    for (const row of result?.rows || []) {
+      map[row.integration] = {
+        payload: row.payload || {},
+        updatedAt: row.updated_at?.toISOString?.() || null
+      };
+    }
+    return map;
+  } catch (error) {
+    console.warn(`Postgres integration_keys read skipped: ${error.message}`);
+    return {};
+  }
+}
+
+export async function saveIntegrationKey(integration, payload) {
+  await safeQuery(
+    `insert into integration_keys (integration, payload, updated_at)
+     values ($1, $2, now())
+     on conflict (integration) do update set
+       payload = excluded.payload,
+       updated_at = now()`,
+    [integration, payload]
+  );
+}
+
+export async function deleteIntegrationKey(integration) {
+  await safeQuery(`delete from integration_keys where integration = $1`, [integration]);
+}
+
 export async function loadRecentEvents(limit = 100) {
   try {
     const result = await query(

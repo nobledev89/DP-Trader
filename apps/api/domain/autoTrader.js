@@ -1,4 +1,4 @@
-import { scoreSignal } from "./aiScorer.js";
+import { scoreSignal, scoreSignalWithLlm } from "./aiScorer.js";
 import { evaluateRisk } from "./riskManager.js";
 import { loadMarketSnapshot } from "./marketData.js";
 import { buildSignals } from "./strategyEngine.js";
@@ -7,6 +7,7 @@ import { appendEvent } from "../store.js";
 
 const MIN_AUTO_CONFIDENCE = 0.62;
 const DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
+const MAX_LLM_CANDIDATES = 3;
 
 export async function runAutoTradeCycle({ config, store, now = new Date() }) {
   if (store.killSwitch) {
@@ -18,37 +19,78 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
   }
 
   const market = await loadMarketSnapshot(config, store, now);
-  const candidates = buildSignals(market).map((signal) => {
-    const ai = scoreSignal(signal, { spyTrend: "up" });
-    const risk = evaluateRisk({
-      signal,
-      account: store.account,
-      state: summarizeStoreForAuto(store, now),
-      config: config.risk,
-      now
-    });
-    return { signal, ai, risk };
-  }).filter(({ ai, risk }) => (
-    ai.decision === "candidate" &&
-    ai.probabilityOfSuccess >= MIN_AUTO_CONFIDENCE &&
-    risk.decision === "approved"
-  )).sort((a, b) => b.ai.probabilityOfSuccess - a.ai.probabilityOfSuccess);
+  const marketContext = deriveMarketContext(market);
+  const signals = buildSignals(market, marketContext);
 
-  const candidate = candidates.find(({ signal }) => !hasRecentOrder(store, signal.symbol, now));
-  if (!candidate) {
-    appendEvent(store, "info", "AI auto trader found no approved paper trade");
+  const preScored = signals
+    .map((signal) => {
+      const heuristic = scoreSignal(signal, marketContext);
+      const risk = evaluateRisk({
+        signal,
+        account: store.account,
+        state: summarizeStoreForAuto(store, now),
+        config: config.risk,
+        now
+      });
+      return { signal, heuristic, risk };
+    })
+    .filter(({ heuristic, risk, signal }) => (
+      risk.decision === "approved" &&
+      heuristic.probabilityOfSuccess >= 0.5 &&
+      !hasRecentOrder(store, signal.symbol, now)
+    ))
+    .sort((a, b) => b.heuristic.probabilityOfSuccess - a.heuristic.probabilityOfSuccess)
+    .slice(0, MAX_LLM_CANDIDATES);
+
+  if (!preScored.length) {
+    appendEvent(store, "info", "AI auto trader found no risk-approved signal");
     return { status: "no_trade", reason: "no_approved_signal" };
   }
 
-  const alpacaOrder = await submitAlpacaBracketOrder(config, candidate.signal, candidate.risk);
-  const order = normalizeAutoOrder(alpacaOrder, candidate);
+  let chosen = null;
+  for (const candidate of preScored) {
+    const ai = await scoreSignalWithLlm({
+      config,
+      signal: candidate.signal,
+      marketContext,
+      risk: candidate.risk
+    });
+    if (ai.decision === "candidate" && ai.probabilityOfSuccess >= MIN_AUTO_CONFIDENCE) {
+      chosen = { ...candidate, ai };
+      break;
+    }
+    appendEvent(store, "info", `AI rejected ${candidate.signal.symbol}: ${ai.rationale || ai.reasonCodes?.join(", ") || "low_confidence"}`);
+  }
+
+  if (!chosen) {
+    return { status: "no_trade", reason: "ai_rejected_all_candidates" };
+  }
+
+  const alpacaOrder = await submitAlpacaBracketOrder(config, chosen.signal, chosen.risk);
+  const order = normalizeAutoOrder(alpacaOrder, chosen);
   store.orders.unshift(order);
-  appendEvent(store, "info", `AI submitted Alpaca paper order for ${order.symbol}; waiting for fill`);
+  appendEvent(
+    store,
+    "info",
+    `AI submitted Alpaca paper order for ${order.symbol} (${order.side} ${order.qty}@${order.limitPrice}); reason: ${chosen.ai.rationale || chosen.ai.reasonCodes?.join(", ")}`
+  );
   return {
     status: "submitted",
     order,
-    ai: candidate.ai,
-    risk: candidate.risk
+    ai: chosen.ai,
+    risk: chosen.risk
+  };
+}
+
+function deriveMarketContext(market) {
+  const spy = market.find((bar) => bar.symbol === "SPY");
+  if (!spy) return { spyTrend: "unknown" };
+  const trend = (spy.changePct ?? 0) >= 0.1 ? "up" : (spy.changePct ?? 0) <= -0.1 ? "down" : "flat";
+  return {
+    spyTrend: trend,
+    spyChangePct: spy.changePct ?? 0,
+    spyRsi: spy.rsi14,
+    spyAboveVwap: spy.aboveVwap
   };
 }
 
@@ -85,7 +127,7 @@ function normalizeAutoOrder(alpacaOrder, candidate) {
     side: candidate.signal.direction === "long" ? "buy" : "sell",
     qty: candidate.risk.shares,
     type: "alpaca_paper_bracket",
-    limitPrice: Number(alpacaOrder.limit_price || marketableLimitPrice(candidate.signal)),
+    limitPrice: Number(alpacaOrder.limit_price || marketableLimitPrice(candidate.signal, candidate.signal.quote)),
     stopPrice: candidate.signal.stopPrice,
     targetPrice: candidate.signal.targetPrice,
     status: alpacaOrder.status || "submitted",
@@ -93,6 +135,8 @@ function normalizeAutoOrder(alpacaOrder, candidate) {
     filledQty: Number(alpacaOrder.filled_qty || 0),
     filledAvgPrice: Number(alpacaOrder.filled_avg_price || 0),
     aiConfidence: candidate.ai.probabilityOfSuccess,
+    aiModel: candidate.ai.modelVersion,
+    aiRationale: candidate.ai.rationale || null,
     expectedR: candidate.ai.expectedR
   };
 }

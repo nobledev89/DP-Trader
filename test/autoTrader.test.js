@@ -25,21 +25,14 @@ const config = {
 
 test("submits the top approved signal to Alpaca paper trading", async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (url, options) => {
-    assert.equal(url, "https://paper-api.alpaca.markets/v2/orders");
-    const body = JSON.parse(options.body);
-    assert.equal(body.order_class, "bracket");
-    assert.equal(body.type, "limit");
-    assert.ok(Number(body.limit_price) > 100);
-    return Response.json({
-      id: "alpaca-order-1",
-      client_order_id: "client-1",
-      status: "accepted",
-      limit_price: body.limit_price,
-      filled_qty: "0",
-      created_at: "2026-05-20T18:00:00Z"
-    });
-  };
+  let submittedLimit = null;
+  globalThis.fetch = mockAlpacaFetch({
+    onOrderPost: (body) => {
+      submittedLimit = Number(body.limit_price);
+      assert.equal(body.order_class, "bracket");
+      assert.equal(body.type, "limit");
+    }
+  });
 
   try {
     const store = createStore();
@@ -52,6 +45,9 @@ test("submits the top approved signal to Alpaca paper trading", async () => {
     assert.equal(store.orders.length, 1);
     assert.equal(store.orders[0].type, "alpaca_paper_bracket");
     assert.equal(store.orders[0].filledQty, 0);
+    // The limit must be above the live ask (200.04) by the marketable buffer
+    assert.ok(submittedLimit >= 200.04, `expected limit above live ask, got ${submittedLimit}`);
+    assert.ok(submittedLimit <= 200.6, `limit overshot, got ${submittedLimit}`);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -68,6 +64,60 @@ test("does not auto trade while kill switch is enabled", async () => {
   assert.equal(result.status, "paused");
   assert.equal(store.orders.length, 0);
 });
+
+function mockAlpacaFetch({ onOrderPost } = {}) {
+  return async (url, options = {}) => {
+    const target = url.toString();
+    if (target.startsWith("https://data.alpaca.markets/v2/stocks/trades/latest")) {
+      return Response.json({
+        trades: Object.fromEntries(SYMBOL_LIST.map((symbol, index) => [symbol, {
+          p: 200 + index * 0.5,
+          t: "2026-05-20T18:00:00Z"
+        }]))
+      });
+    }
+    if (target.startsWith("https://data.alpaca.markets/v2/stocks/quotes/latest")) {
+      return Response.json({
+        quotes: Object.fromEntries(SYMBOL_LIST.map((symbol, index) => [symbol, {
+          bp: 199.98 + index * 0.5,
+          ap: 200.02 + index * 0.5,
+          bs: 5,
+          as: 5,
+          t: "2026-05-20T18:00:00Z"
+        }]))
+      });
+    }
+    if (target.startsWith("https://data.alpaca.markets/v2/stocks/bars")) {
+      const bars = Array.from({ length: 60 }, (_, i) => ({
+        t: new Date(Date.UTC(2026, 4, 20, 17, i)).toISOString(),
+        o: 200 + Math.sin(i / 4) * 0.5,
+        h: 200.4 + Math.sin(i / 4) * 0.5,
+        l: 199.6 + Math.sin(i / 4) * 0.5,
+        c: 200 + Math.sin((i + 1) / 4) * 0.5,
+        v: 3500000 + i * 1000,
+        vw: 200 + Math.sin(i / 4) * 0.5
+      }));
+      return Response.json({
+        bars: Object.fromEntries(SYMBOL_LIST.map((symbol) => [symbol, bars]))
+      });
+    }
+    if (target === "https://paper-api.alpaca.markets/v2/orders" && options.method === "POST") {
+      const body = JSON.parse(options.body);
+      onOrderPost?.(body);
+      return Response.json({
+        id: "alpaca-order-1",
+        client_order_id: "client-1",
+        status: "accepted",
+        limit_price: body.limit_price,
+        filled_qty: "0",
+        created_at: "2026-05-20T18:00:00Z"
+      });
+    }
+    throw new Error(`Unexpected fetch in test: ${target}`);
+  };
+}
+
+const SYMBOL_LIST = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "AMD", "META", "AMZN", "GOOGL"];
 
 test("does not auto trade when an active order already exists", async () => {
   const store = createStore();

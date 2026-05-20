@@ -250,16 +250,13 @@
         <!-- SETTINGS -->
         <section id="settings" class="page">
           <div class="panel">
-            <div class="section-head"><h2>Integration API Keys</h2><span class="muted">Encrypted in this browser</span></div>
-            <div class="settings-lock">
-              <input id="vaultPassphrase" type="password" placeholder="Vault passphrase">
-              <button id="unlockVaultButton" class="button secondary" type="button">Unlock</button>
-              <button id="clearVaultButton" class="button danger" type="button">Clear Saved Keys</button>
-              <span id="vaultStatus" class="pill danger-pill">Locked</span>
-            </div>
+            <div class="section-head"><h2>Integration API Keys</h2><span class="muted">Stored server-side in Postgres</span></div>
             <form id="settingsForm" class="settings-form">
               <div class="settings-grid" id="settingsGrid"></div>
-              <button class="button primary" type="submit">Encrypt And Save In Browser</button>
+              <div class="settings-actions">
+                <button class="button primary" type="submit">Save Keys</button>
+                <button id="clearKeysButton" class="button danger" type="button">Clear Saved Keys</button>
+              </div>
               <div id="settingsMessage" class="settings-message" role="status" aria-live="polite"></div>
             </form>
           </div>

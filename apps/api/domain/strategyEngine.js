@@ -12,43 +12,92 @@ export function generateMarketSnapshot(now = new Date()) {
     return {
       symbol,
       price,
+      tradePrice: price,
+      bid: 0,
+      ask: 0,
       vwap: Number((price - 0.34 + index * 0.03).toFixed(2)),
       changePct: Number((Math.sin(tick / 29 + index) * 1.2 + Math.cos(tick / 11 + index) * 0.16).toFixed(2)),
       relativeVolume: Number((1.05 + ((Math.floor(tick / 3) + index) % 8) / 10).toFixed(2)),
       spreadPct,
-      updatedAt: now.toISOString()
+      avgVolume: 2500000 + index * 700000,
+      rsi14: null,
+      ema20: null,
+      ema50: null,
+      emaSlope: 0,
+      atr14: 0,
+      atrPct: 0,
+      aboveVwap: true,
+      aboveEma20: null,
+      aboveEma50: null,
+      updatedAt: now.toISOString(),
+      source: "simulated"
     };
   });
 }
 
 export function buildSignals(marketSnapshot, marketContext = { spyTrend: "up" }) {
   return marketSnapshot.map((bar, index) => {
-    const entryPrice = Number((bar.price + 0.03).toFixed(2));
-    const stopDistance = Number(Math.max(0.24, bar.price * 0.0045).toFixed(2));
-    const targetDistance = Number((stopDistance * (1.6 + (index % 3) * 0.25)).toFixed(2));
-    const signal = {
+    const direction = pickDirection(bar);
+    const referencePrice = (direction === "long" ? bar.ask : bar.bid) || bar.price;
+    const entryPrice = Number(referencePrice.toFixed(2));
+
+    const atrStop = bar.atr14 > 0 ? bar.atr14 * 0.9 : Math.max(0.24, entryPrice * 0.0045);
+    const stopDistance = Number(Math.max(entryPrice * 0.0025, atrStop).toFixed(2));
+    const targetDistance = Number((stopDistance * 2.1).toFixed(2));
+
+    const stopPrice = Number((direction === "long" ? entryPrice - stopDistance : entryPrice + stopDistance).toFixed(2));
+    const targetPrice = Number((direction === "long" ? entryPrice + targetDistance : entryPrice - targetDistance).toFixed(2));
+
+    return {
       id: `${bar.symbol}-${bar.updatedAt}`,
       symbol: bar.symbol,
-      strategy: index % 2 === 0 ? "vwap_pullback" : "opening_range_breakout",
-      direction: "long",
+      strategy: pickStrategy(bar, index),
+      direction,
       confidence: 0,
       entryPrice,
-      stopPrice: Number((entryPrice - stopDistance).toFixed(2)),
-      targetPrice: Number((entryPrice + targetDistance).toFixed(2)),
+      stopPrice,
+      targetPrice,
       expectedR: Number((targetDistance / stopDistance).toFixed(2)),
-      spreadPct: bar.spreadPct,
-      relativeVolume: bar.relativeVolume,
-      avgVolume: 2500000 + index * 700000,
-      aboveVwap: bar.price >= bar.vwap,
-      emaSlope: Number((0.08 + Math.sin(index + bar.price) * 0.05).toFixed(3)),
-      rsi: Math.round(49 + ((bar.price + index) % 19)),
-      atrPct: Number((1.1 + (index % 5) * 0.44).toFixed(2)),
+      spreadPct: bar.spreadPct ?? 0.03,
+      relativeVolume: bar.relativeVolume ?? 1,
+      avgVolume: bar.avgVolume ?? 0,
+      aboveVwap: bar.aboveVwap ?? true,
+      aboveEma20: bar.aboveEma20 ?? null,
+      aboveEma50: bar.aboveEma50 ?? null,
+      emaSlope: bar.emaSlope ?? 0,
+      rsi: bar.rsi14 ?? 50,
+      atrPct: bar.atrPct ?? 0,
+      quote: { bid: bar.bid || 0, ask: bar.ask || 0 },
       features: {
-        distanceFromVwapPct: Number(((bar.price - bar.vwap) / bar.vwap * 100).toFixed(2)),
-        relativeVolume: bar.relativeVolume,
-        spyTrend: marketContext.spyTrend
+        distanceFromVwapPct: bar.vwap ? Number((((bar.price - bar.vwap) / bar.vwap) * 100).toFixed(2)) : 0,
+        relativeVolume: bar.relativeVolume ?? 1,
+        spyTrend: marketContext.spyTrend,
+        atrPct: bar.atrPct ?? 0,
+        rsi14: bar.rsi14 ?? null,
+        emaSlope: bar.emaSlope ?? 0,
+        aboveVwap: bar.aboveVwap ?? true,
+        aboveEma20: bar.aboveEma20 ?? null,
+        source: bar.source
       }
     };
-    return signal;
   });
+}
+
+function pickDirection(bar) {
+  if (bar.rsi14 != null && bar.aboveVwap != null) {
+    if (bar.aboveVwap && bar.rsi14 < 70 && (bar.emaSlope ?? 0) >= 0) return "long";
+    if (!bar.aboveVwap && bar.rsi14 > 30 && (bar.emaSlope ?? 0) <= 0) return "short";
+    return bar.changePct >= 0 ? "long" : "short";
+  }
+  return "long";
+}
+
+function pickStrategy(bar, index) {
+  if (bar.rsi14 != null) {
+    if (bar.aboveVwap && (bar.emaSlope ?? 0) > 0) return "vwap_trend_follow";
+    if (bar.rsi14 < 35) return "oversold_reversion";
+    if (bar.rsi14 > 65) return "momentum_breakout";
+    return "range_mean_revert";
+  }
+  return index % 2 === 0 ? "vwap_pullback" : "opening_range_breakout";
 }
