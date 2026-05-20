@@ -9,6 +9,7 @@ import { configWithRequestCredentials, requestIntegrationStatus } from "./servic
 import { generateMarketSnapshot, buildSignals } from "./domain/strategyEngine.js";
 import { scoreSignal } from "./domain/aiScorer.js";
 import { evaluateRisk } from "./domain/riskManager.js";
+import { runAutoTradeCycle } from "./domain/autoTrader.js";
 
 const config = readConfig();
 const store = createStore();
@@ -114,6 +115,18 @@ async function handleApi(req, res, url, cfg, state) {
     state.orders.unshift(order);
     appendEvent(state, "info", `Simulated paper order accepted for ${order.symbol}`);
     sendJson(res, 201, { order, risk });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/auto-trade") {
+    const requestConfig = configWithRequestCredentials(cfg, req.headers);
+    try {
+      const result = await runAutoTradeCycle({ config: requestConfig, store: state });
+      sendJson(res, 200, result);
+    } catch (error) {
+      appendEvent(state, "warning", `AI auto trader blocked: ${error.message}`);
+      sendJson(res, 409, { status: "blocked", error: error.message });
+    }
     return;
   }
 

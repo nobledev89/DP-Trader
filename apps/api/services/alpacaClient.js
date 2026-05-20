@@ -4,7 +4,7 @@ export function hasAlpacaCredentials(config) {
 
 export async function fetchAlpacaAccount(config) {
   if (!hasAlpacaCredentials(config)) return null;
-  const response = await fetch(`${config.alpaca.baseUrl}/v2/account`, {
+  const response = await fetch(`${alpacaApiRoot(config)}/account`, {
     headers: alpacaHeaders(config)
   });
   if (!response.ok) {
@@ -23,7 +23,7 @@ export async function fetchAlpacaAccount(config) {
 
 export async function fetchAlpacaPositions(config) {
   if (!hasAlpacaCredentials(config)) return null;
-  const response = await fetch(`${config.alpaca.baseUrl}/v2/positions`, {
+  const response = await fetch(`${alpacaApiRoot(config)}/positions`, {
     headers: alpacaHeaders(config)
   });
   if (!response.ok) {
@@ -36,6 +36,57 @@ export async function fetchAlpacaPositions(config) {
     unrealizedPnl: Number(position.unrealized_pl),
     avgEntryPrice: Number(position.avg_entry_price)
   }));
+}
+
+export async function submitAlpacaBracketOrder(config, signal, risk) {
+  assertPaperTradingEndpoint(config);
+  if (!hasAlpacaCredentials(config)) {
+    throw new Error("Alpaca paper credentials are missing");
+  }
+
+  const payload = {
+    symbol: signal.symbol,
+    qty: String(risk.shares),
+    side: signal.direction === "long" ? "buy" : "sell",
+    type: "limit",
+    time_in_force: "day",
+    limit_price: String(signal.entryPrice),
+    order_class: "bracket",
+    take_profit: {
+      limit_price: String(signal.targetPrice)
+    },
+    stop_loss: {
+      stop_price: String(signal.stopPrice)
+    }
+  };
+
+  const response = await fetch(`${alpacaApiRoot(config)}/orders`, {
+    method: "POST",
+    headers: {
+      ...alpacaHeaders(config),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = body.message || body.error || `Alpaca order request failed: ${response.status}`;
+    throw new Error(message);
+  }
+  return body;
+}
+
+export function alpacaApiRoot(config) {
+  const base = (config.alpaca.baseUrl || "https://paper-api.alpaca.markets").replace(/\/+$/, "");
+  return base.endsWith("/v2") ? base : `${base}/v2`;
+}
+
+export function assertPaperTradingEndpoint(config) {
+  const root = new URL(alpacaApiRoot(config));
+  if (root.hostname !== "paper-api.alpaca.markets") {
+    throw new Error("Auto trading is locked to Alpaca paper endpoint only");
+  }
 }
 
 function alpacaHeaders(config) {

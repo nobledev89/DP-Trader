@@ -5,6 +5,7 @@
     { "source": "/api/state", "destination": "/api/state" },
     { "source": "/api/settings/integrations", "destination": "/api/settings/integrations" },
     { "source": "/api/kill-switch", "destination": "/api/kill-switch" },
+    { "source": "/api/auto-trade", "destination": "/api/auto-trade" },
     { "source": "/api/orders/simulate", "destination": "/api/orders/simulate" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]

@@ -8,6 +8,9 @@ const vaultKey = "dpTraderEncryptedIntegrations";
 let selectedSymbol = null;
 let activeFilter = "popular";
 let activeInterval = "15m";
+let autoTradeInFlight = false;
+let lastAutoTradeAt = 0;
+const autoTradeIntervalMs = 60 * 1000;
 
 const integrationFields = {
   alpaca: ["apiKey", "secretKey"],
@@ -60,16 +63,11 @@ document.querySelectorAll("#intervalGroup .interval").forEach((btn) => {
   });
 });
 
-document.querySelector(".btn-trade").addEventListener("click", async () => {
-  if (!selectedSymbol) return;
-  try {
-    await postJson("/api/orders/simulate", { symbol: selectedSymbol });
-    await refresh();
-    showPage("orders");
-  } catch (err) {
-    alert("Order rejected: " + err.message);
-  }
-});
+const tradeButton = document.querySelector(".btn-trade");
+if (tradeButton) {
+  tradeButton.textContent = "AI Auto Active";
+  tradeButton.disabled = true;
+}
 
 function showPage(pageId) {
   pages.forEach((page) => page.classList.toggle("active", page.id === pageId));
@@ -84,6 +82,7 @@ async function refresh() {
   state = appState;
   renderState(appState);
   renderSettings(settings.integrations);
+  maybeRunAutoTrade();
 }
 
 function renderState(data) {
@@ -104,6 +103,7 @@ function renderState(data) {
   const killButton = document.querySelector("#killSwitchButton");
   killButton.classList.toggle("active", data.risk.killSwitch);
   killButton.title = data.risk.killSwitch ? "Resume paper trading" : "Pause trading";
+  if (tradeButton) tradeButton.textContent = data.risk.killSwitch ? "AI Auto Paused" : "AI Auto Active";
 
   renderWatchlist(data.market);
   renderSignals(data.signals);
@@ -331,17 +331,10 @@ function renderSignals(signals) {
         <span>${Math.round(signal.confidence * 100)}%</span>
         <span>${money(signal.entryPrice)}</span>
         <span class="${signal.risk.decision === "approved" ? "up" : "down"}">${title(signal.risk.decision)}</span>
-        <button class="button secondary" data-order-symbol="${signal.symbol}" ${signal.risk.decision === "approved" ? "" : "disabled"}>Paper Order</button>
+        <span>AI managed</span>
       </div>
     `).join("")}
   `;
-  document.querySelectorAll("[data-order-symbol]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      await postJson("/api/orders/simulate", { symbol: button.dataset.orderSymbol });
-      await refresh();
-      showPage("orders");
-    });
-  });
 }
 
 function renderOrders(orders) {
@@ -496,6 +489,23 @@ function credentialHeaders() {
     ...(unlockedIntegrations.twelveData?.apiKey ? { "X-DPT-Twelve-Data-Key": unlockedIntegrations.twelveData.apiKey } : {}),
     ...(unlockedIntegrations.alphaVantage?.apiKey ? { "X-DPT-Alpha-Vantage-Key": unlockedIntegrations.alphaVantage.apiKey } : {})
   };
+}
+
+async function maybeRunAutoTrade() {
+  if (!vaultUnlocked || !localIntegrationStatus("alpaca").configured || state?.risk?.killSwitch) return;
+  if (autoTradeInFlight || Date.now() - lastAutoTradeAt < autoTradeIntervalMs) return;
+  autoTradeInFlight = true;
+  lastAutoTradeAt = Date.now();
+  try {
+    const result = await postJson("/api/auto-trade", {});
+    if (result.status === "submitted") {
+      await refresh();
+    }
+  } catch (error) {
+    showSettingsMessage(`AI auto trader blocked: ${error.message}`, "error");
+  } finally {
+    autoTradeInFlight = false;
+  }
 }
 
 function localIntegrationStatus(key) {

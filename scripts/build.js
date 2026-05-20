@@ -6,6 +6,7 @@ const required = [
   "api/state.js",
   "api/settings/integrations.js",
   "api/kill-switch.js",
+  "api/auto-trade.js",
   "api/orders/simulate.js",
   "apps/web/index.html",
   "apps/web/styles.css",

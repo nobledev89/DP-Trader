@@ -18,7 +18,8 @@ No package dependencies are required today, so `npm install` is optional unless 
 - Paper mode is the default.
 - Live trading is blocked unless both `TRADING_MODE=live` and `ENABLE_LIVE_TRADING=true` are set.
 - The UI and API expose a kill switch.
-- Orders in this first implementation are simulated paper orders. Alpaca keys are only used server-side for read-only account, position, and order views.
+- AI auto trading is locked to Alpaca paper trading. The dashboard must be open and the browser vault must be unlocked for browser-saved keys to be sent with auto-trade cycles.
+- The pause button is the operating control. When not paused, the AI auto trader evaluates signals, applies risk checks, and submits approved bracket orders to Alpaca paper trading.
 
 ## Checks
 
