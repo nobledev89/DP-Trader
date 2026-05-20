@@ -1,4 +1,5 @@
 import http from "node:http";
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, extname, join, normalize } from "node:path";
 import { readConfig, assertLiveTradingAllowed } from "./config.js";
@@ -97,7 +98,7 @@ async function handleApi(req, res, url, cfg, state) {
       return;
     }
     const order = {
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       symbol: signal.symbol,
       side: signal.direction === "long" ? "buy" : "sell",
       qty: risk.shares,

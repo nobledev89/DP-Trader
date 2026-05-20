@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-const roots = ["apps", "scripts", "test"];
+const roots = ["api", "apps", "scripts", "test"];
 const failures = [];
 
 for (const file of await listFiles(process.cwd(), roots)) {

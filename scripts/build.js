@@ -2,6 +2,11 @@ import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const required = [
+  "vercel.json",
+  "api/state.js",
+  "api/settings/integrations.js",
+  "api/kill-switch.js",
+  "api/orders/simulate.js",
   "apps/web/index.html",
   "apps/web/styles.css",
   "apps/web/app.js",
