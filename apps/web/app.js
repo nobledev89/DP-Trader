@@ -14,6 +14,7 @@ const autoTradeIntervalMs = 60 * 1000;
 const previousPrices = new Map();
 const aiLogs = [];
 const activePageKey = "dpTraderActivePage";
+const localOrdersKey = "dpTraderLocalOrders";
 
 const integrationFields = {
   alpaca: ["apiKey", "secretKey"],
@@ -349,15 +350,16 @@ function renderSignals(signals) {
 }
 
 function renderOrders(orders) {
-  document.querySelector("#ordersTable").innerHTML = orders.length ? `
+  const mergedOrders = mergeOrders(readLocalOrders(), orders);
+  document.querySelector("#ordersTable").innerHTML = mergedOrders.length ? `
     <div class="row header"><span>Symbol</span><span>Side</span><span>Qty</span><span>Limit</span><span>Status</span><span>Created</span></div>
-    ${orders.map((order) => `
+    ${mergedOrders.map((order) => `
       <div class="row">
         <strong>${order.symbol}</strong><span>${order.side}</span><span>${order.qty}</span>
         <span>${money(order.limitPrice)}</span><span>${order.status}</span><span>${time(order.createdAt)}</span>
       </div>
     `).join("")}
-  ` : `<p class="body-copy">No paper orders yet. Approved signals can be simulated from Live Signals.</p>`;
+  ` : `<p class="body-copy">No paper orders yet. AI will add Alpaca paper orders here after submission.</p>`;
 }
 
 function renderRiskRules(risk) {
@@ -529,6 +531,7 @@ async function maybeRunAutoTrade() {
   logAiActivity("running", "AI cycle started. Scoring signals and checking risk.", {});
   try {
     const result = await postJson("/api/auto-trade", {});
+    if (result.status === "submitted" && result.order) saveLocalOrder(result.order);
     logAiActivity(result.status, describeAutoTradeResult(result), result);
     if (result.status === "submitted") {
       await refresh();
@@ -561,12 +564,35 @@ function logAiActivity(status, message, details) {
 
 function describeAutoTradeResult(result) {
   if (result.status === "submitted") {
-    return `Submitted ${result.order?.symbol || "paper"} bracket order to Alpaca. AI ${Math.round((result.ai?.probabilityOfSuccess || 0) * 100)}%, ${result.risk?.shares || 0} shares.`;
+    const order = result.order || {};
+    return `Submitted ${order.symbol || "paper"} bracket order to Alpaca. AI ${Math.round((result.ai?.probabilityOfSuccess || 0) * 100)}%, ${order.qty || result.risk?.shares || 0} shares at ${money(order.limitPrice)}.`;
   }
   if (result.status === "no_trade") return `No trade submitted: ${title(result.reason || "no approved signal")}.`;
   if (result.status === "paused") return "AI cycle skipped because trading is paused.";
   if (result.status === "blocked") return `AI blocked: ${result.error || "unknown error"}.`;
   return `AI cycle finished with status ${result.status}.`;
+}
+
+function saveLocalOrder(order) {
+  const orders = mergeOrders([order], readLocalOrders()).slice(0, 50);
+  localStorage.setItem(localOrdersKey, JSON.stringify(orders));
+}
+
+function readLocalOrders() {
+  try {
+    return JSON.parse(localStorage.getItem(localOrdersKey) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function mergeOrders(primary, secondary) {
+  const byId = new Map();
+  [...primary, ...secondary].forEach((order) => {
+    if (!order) return;
+    byId.set(order.id || order.clientOrderId || `${order.symbol}-${order.createdAt}`, order);
+  });
+  return [...byId.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 }
 
 function renderAiLogs() {
@@ -578,10 +604,16 @@ function renderAiLogs() {
       <span class="log-status ${statusClass(log.status)}">${title(log.status)}</span>
       <div>
         <strong>${escapeHtml(log.message)}</strong>
-        <small>${time(log.createdAt)}${log.details?.order?.id ? ` | Order ${escapeHtml(log.details.order.id)}` : ""}</small>
+        <small>${time(log.createdAt)}${orderLogMeta(log)}</small>
       </div>
     </article>
   `).join("") : `<p class="body-copy">No AI cycles logged yet. Unlock Alpaca keys and leave the app open.</p>`;
+}
+
+function orderLogMeta(log) {
+  const order = log.details?.order;
+  if (!order) return "";
+  return ` | ${escapeHtml(order.symbol)} ${escapeHtml(order.side)} ${order.qty} @ ${money(order.limitPrice)} | ${escapeHtml(order.status)} | Order ${escapeHtml(order.id)}`;
 }
 
 function setAiTraderStatus(status, detail) {
