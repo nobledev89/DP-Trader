@@ -36,6 +36,10 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4v6c0 5-4 7-8 8-4-1-8-3-8-8V7l8-4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
             <span>Support</span>
           </button>
+          <button class="nav-item" data-page="logs" title="AI Logs">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 8h8M8 12h8M8 16h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <span>Logs</span>
+          </button>
           <button class="nav-item" data-page="settings" title="Settings">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4.9a7 7 0 0 0-2.1-1.2L14 3h-4l-.4 2.5a7 7 0 0 0-2.1 1.2L5.1 5.8l-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-.9a7 7 0 0 0 2.1 1.2L10 21h4l.4-2.5a7 7 0 0 0 2.1-1.2l2.4.9 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
             <span>Settings</span>
@@ -149,6 +153,7 @@
             <article class="metric"><span>Daily P&amp;L</span><strong id="dayPnl">$0</strong><small>Hard stop enforced</small></article>
             <article class="metric"><span>Open Positions</span><strong id="openPositions">0</strong><small>Starts at one max</small></article>
             <article class="metric"><span>Risk State</span><strong id="riskState">Loading</strong><small id="riskLimits">Checking limits</small></article>
+            <article class="metric"><span>AI Trader</span><strong id="aiTraderState">Checking</strong><small id="aiTraderDetail">Waiting for first cycle</small></article>
           </div>
         </section>
 
@@ -203,6 +208,14 @@
               <h2>Calibration</h2>
               <div id="modelBars" class="bars"></div>
             </section>
+          </div>
+        </section>
+
+        <!-- LOGS -->
+        <section id="logs" class="page">
+          <div class="panel">
+            <div class="section-head"><h2>AI Activity Logs</h2><span class="muted" id="logCount">0 events</span></div>
+            <div id="aiLogList" class="log-list"></div>
           </div>
         </section>
 

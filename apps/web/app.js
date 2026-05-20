@@ -12,6 +12,8 @@ let autoTradeInFlight = false;
 let lastAutoTradeAt = 0;
 const autoTradeIntervalMs = 60 * 1000;
 const previousPrices = new Map();
+const aiLogs = [];
+const activePageKey = "dpTraderActivePage";
 
 const integrationFields = {
   alpaca: ["apiKey", "secretKey"],
@@ -71,8 +73,13 @@ if (tradeButton) {
 }
 
 function showPage(pageId) {
+  if (!pages.some((page) => page.id === pageId)) pageId = "markets";
   pages.forEach((page) => page.classList.toggle("active", page.id === pageId));
   navItems.forEach((item) => item.classList.toggle("active", item.dataset.page === pageId));
+  localStorage.setItem(activePageKey, pageId);
+  if (location.hash !== `#${pageId}`) {
+    history.replaceState(null, "", `#${pageId}`);
+  }
 }
 
 async function refresh() {
@@ -106,6 +113,7 @@ function renderState(data) {
   killButton.classList.toggle("active", data.risk.killSwitch);
   killButton.title = data.risk.killSwitch ? "Resume paper trading" : "Pause trading";
   if (tradeButton) tradeButton.textContent = data.risk.killSwitch ? "AI Auto Paused" : "AI Auto Active";
+  renderAiLogs();
 
   renderWatchlist(data.market);
   renderSignals(data.signals);
@@ -495,20 +503,97 @@ function credentialHeaders() {
 }
 
 async function maybeRunAutoTrade() {
-  if (!vaultUnlocked || !localIntegrationStatus("alpaca").configured || state?.risk?.killSwitch) return;
-  if (autoTradeInFlight || Date.now() - lastAutoTradeAt < autoTradeIntervalMs) return;
+  if (!vaultUnlocked) {
+    logAiActivity("waiting", "Vault locked. Unlock Alpaca keys before AI can trade.", {});
+    return;
+  }
+  if (!localIntegrationStatus("alpaca").configured) {
+    logAiActivity("waiting", "Alpaca browser keys are missing. AI cannot submit paper orders.", {});
+    return;
+  }
+  if (state?.risk?.killSwitch) {
+    logAiActivity("paused", "Pause button is active. AI cycle skipped.", {});
+    return;
+  }
+  if (autoTradeInFlight) {
+    logAiActivity("waiting", "AI cycle already running.", {});
+    return;
+  }
+  const waitMs = autoTradeIntervalMs - (Date.now() - lastAutoTradeAt);
+  if (waitMs > 0) {
+    setAiTraderStatus("Cooldown", `Next AI cycle in ${Math.ceil(waitMs / 1000)}s`);
+    return;
+  }
   autoTradeInFlight = true;
   lastAutoTradeAt = Date.now();
+  logAiActivity("running", "AI cycle started. Scoring signals and checking risk.", {});
   try {
     const result = await postJson("/api/auto-trade", {});
+    logAiActivity(result.status, describeAutoTradeResult(result), result);
     if (result.status === "submitted") {
       await refresh();
     }
   } catch (error) {
+    logAiActivity("blocked", `AI auto trader blocked: ${error.message}`, {});
     showSettingsMessage(`AI auto trader blocked: ${error.message}`, "error");
   } finally {
     autoTradeInFlight = false;
   }
+}
+
+function logAiActivity(status, message, details) {
+  const last = aiLogs[0];
+  if (last?.status === status && last?.message === message && Date.now() - Date.parse(last.createdAt) < 15000) {
+    setAiTraderStatus(title(status), message);
+    return;
+  }
+  aiLogs.unshift({
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    createdAt: new Date().toISOString(),
+    status,
+    message,
+    details
+  });
+  aiLogs.splice(80);
+  setAiTraderStatus(title(status), message);
+  renderAiLogs();
+}
+
+function describeAutoTradeResult(result) {
+  if (result.status === "submitted") {
+    return `Submitted ${result.order?.symbol || "paper"} bracket order to Alpaca. AI ${Math.round((result.ai?.probabilityOfSuccess || 0) * 100)}%, ${result.risk?.shares || 0} shares.`;
+  }
+  if (result.status === "no_trade") return `No trade submitted: ${title(result.reason || "no approved signal")}.`;
+  if (result.status === "paused") return "AI cycle skipped because trading is paused.";
+  if (result.status === "blocked") return `AI blocked: ${result.error || "unknown error"}.`;
+  return `AI cycle finished with status ${result.status}.`;
+}
+
+function renderAiLogs() {
+  const list = document.querySelector("#aiLogList");
+  if (!list) return;
+  setText("#logCount", `${aiLogs.length} events`);
+  list.innerHTML = aiLogs.length ? aiLogs.map((log) => `
+    <article class="log-row">
+      <span class="log-status ${statusClass(log.status)}">${title(log.status)}</span>
+      <div>
+        <strong>${escapeHtml(log.message)}</strong>
+        <small>${time(log.createdAt)}${log.details?.order?.id ? ` | Order ${escapeHtml(log.details.order.id)}` : ""}</small>
+      </div>
+    </article>
+  `).join("") : `<p class="body-copy">No AI cycles logged yet. Unlock Alpaca keys and leave the app open.</p>`;
+}
+
+function setAiTraderStatus(status, detail) {
+  setText("#aiTraderState", status);
+  setText("#aiTraderDetail", detail);
+}
+
+function statusClass(status) {
+  if (status === "submitted") return "success";
+  if (status === "blocked") return "error";
+  if (status === "paused" || status === "waiting" || status === "no_trade") return "warn";
+  return "";
 }
 
 function localIntegrationStatus(key) {
@@ -652,6 +737,8 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+showPage(location.hash.slice(1) || localStorage.getItem(activePageKey) || "markets");
+window.addEventListener("hashchange", () => showPage(location.hash.slice(1) || "markets"));
 refresh();
 setInterval(refresh, 5000);
 
