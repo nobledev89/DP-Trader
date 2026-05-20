@@ -125,6 +125,7 @@ async function handleApi(req, res, url, cfg, state) {
   if (req.method === "POST" && url.pathname === "/api/settings/integrations") {
     const body = await readBody(req);
     const result = await updateIntegrations(body, state);
+    await refreshStoredIntegrationKeys(state);
     appendEvent(state, "info", "Integration settings updated");
     persistEvent("info", "Integration settings updated", { updated: result }).catch(() => {});
     sendJson(res, 200, { integrations: publicIntegrations(cfg, state), updated: result });
@@ -134,6 +135,7 @@ async function handleApi(req, res, url, cfg, state) {
   if (req.method === "DELETE" && url.pathname === "/api/settings/integrations") {
     const body = await readBody(req);
     const removed = await clearIntegrations(body, state);
+    await refreshStoredIntegrationKeys(state);
     appendEvent(state, "info", `Integration keys cleared: ${removed.join(", ") || "none"}`);
     persistEvent("info", `Integration keys cleared`, { removed }).catch(() => {});
     sendJson(res, 200, { integrations: publicIntegrations(cfg, state), removed });

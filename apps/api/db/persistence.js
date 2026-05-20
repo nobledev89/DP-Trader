@@ -210,7 +210,9 @@ export async function loadIntegrationKeys() {
 }
 
 export async function saveIntegrationKey(integration, payload) {
-  if (!hasDatabase()) return;
+  if (!hasDatabase()) {
+    throw new Error("DATABASE_URL is required to save integration keys");
+  }
   const result = await query(
     `insert into integration_keys (integration, payload, updated_at)
      values ($1, $2, now())
@@ -226,7 +228,9 @@ export async function saveIntegrationKey(integration, payload) {
 }
 
 export async function deleteIntegrationKey(integration) {
-  if (!hasDatabase()) return;
+  if (!hasDatabase()) {
+    throw new Error("DATABASE_URL is required to clear integration keys");
+  }
   await query(`delete from integration_keys where integration = $1`, [integration]);
 }
 

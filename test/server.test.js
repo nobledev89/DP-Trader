@@ -19,7 +19,7 @@ test("state endpoint returns masked trading dashboard payload", async () => {
   }
 });
 
-test("settings endpoint stores integration keys without echoing secrets", async () => {
+test("settings endpoint rejects key saves when Postgres is not configured", async () => {
   const server = await startTestServer();
   try {
     const saveResponse = await fetch(`${server.url}/api/settings/integrations`, {
@@ -27,9 +27,9 @@ test("settings endpoint stores integration keys without echoing secrets", async 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ integrations: { openai: { apiKey: "sk-test-secret" } } })
     });
-    assert.equal(saveResponse.status, 200);
+    assert.equal(saveResponse.status, 500);
     const saveBody = await saveResponse.json();
-    assert.equal(saveBody.integrations.openai.configured, true);
+    assert.match(saveBody.error, /DATABASE_URL is required/);
     assert.equal(JSON.stringify(saveBody).includes("sk-test-secret"), false);
   } finally {
     await server.close();

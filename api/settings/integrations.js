@@ -15,6 +15,7 @@ export default async function handler(request, response) {
   if (request.method === "POST") {
     const body = await readBody(request);
     const updated = await updateIntegrations(body, store);
+    await refreshStoredIntegrationKeys();
     appendEvent(store, "info", "Integration settings updated");
     persistEvent("info", "Integration settings updated", { updated }).catch(() => {});
     send(response, 200, { integrations: publicIntegrations(config, store), updated });
@@ -24,6 +25,7 @@ export default async function handler(request, response) {
   if (request.method === "DELETE") {
     const body = await readBody(request);
     const removed = await clearIntegrations(body, store);
+    await refreshStoredIntegrationKeys();
     appendEvent(store, "info", `Integration keys cleared: ${removed.join(", ") || "none"}`);
     persistEvent("info", "Integration keys cleared", { removed }).catch(() => {});
     send(response, 200, { integrations: publicIntegrations(config, store), removed });
