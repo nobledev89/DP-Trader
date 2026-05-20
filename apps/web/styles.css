@@ -443,10 +443,145 @@ h2 { font-size: 15px; font-weight: 700; margin: 0 0 12px; padding: 16px 18px 0; 
   .watchlist { max-height: 320px; }
   .chart-footer { grid-template-columns: 1fr; }
 }
+
 @media (max-width: 760px) {
-  .app { grid-template-columns: 64px 1fr; }
-  .metric-row { grid-template-columns: repeat(2, 1fr); }
+  .app {
+    grid-template-columns: 1fr;
+    min-height: 100dvh;
+  }
+
+  /* Sidebar becomes a bottom nav bar */
+  .sidebar {
+    position: fixed;
+    inset: auto 0 0 0;
+    top: auto;
+    height: auto;
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    border-right: 0;
+    border-top: 1px solid var(--line-soft);
+    z-index: 50;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .sidebar::-webkit-scrollbar { display: none; }
+  .brand { display: none; }
+  .nav {
+    display: flex;
+    flex-direction: row;
+    flex: 1;
+    gap: 2px;
+  }
+  .nav-item {
+    flex: 1 0 56px;
+    padding: 6px 4px;
+    font-size: 9.5px;
+    border-radius: 7px;
+  }
+  .nav-item svg { width: 20px; height: 20px; }
+  .sidebar-foot {
+    margin-top: 0;
+    flex-direction: row;
+    flex: none;
+    gap: 6px;
+    padding-left: 4px;
+    border-left: 1px solid var(--line-soft);
+  }
+  .mode-pill, .pill { font-size: 9px; padding: 3px 6px; }
+
+  .main {
+    padding: 10px 12px calc(82px + env(safe-area-inset-bottom));
+  }
+
+  /* Topbar stacks; right cluster wraps */
+  .topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .topbar-right {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+  .btn-deposit { padding: 7px 12px; font-size: 12px; }
+  .account-chip { padding: 4px 8px; font-size: 11.5px; }
+  .account-chip small { font-size: 10px; }
+  .top-pause-button { flex: 1 1 auto; }
+
+  /* Chart header + canvas */
+  .chart-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+  .symbol-info { justify-content: space-between; }
+  .symbol-info strong { font-size: 16px; }
+  .chart-price { font-size: 16px; }
+  .chart-tools { justify-content: space-between; flex-wrap: wrap; }
+  .chart-canvas-wrap { height: 280px; padding: 6px 8px; }
+  .footer-block { padding: 10px 12px; min-height: auto; }
+
+  /* Metrics */
+  .metric-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .usage-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metric { padding: 12px 12px; }
+  .metric strong { font-size: 18px; }
+
   .two-col { grid-template-columns: 1fr; }
-  .row { grid-template-columns: 1fr 1fr; }
-  .log-row { grid-template-columns: 1fr; }
+
+  /* Section headers stack */
+  .section-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 12px 14px;
+  }
+
+  /* Tables: hide header row, stack each row into two-column cards */
+  .table { padding: 10px 12px 14px; }
+  .row,
+  .portfolio-row,
+  .open-trade-row,
+  .order-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px 10px;
+    font-size: 12px;
+    padding: 10px;
+  }
+  .row.header { display: none; }
+
+  .log-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    padding: 10px;
+  }
+
+  /* Settings forms */
+  .settings-grid { grid-template-columns: 1fr; padding: 0 14px 14px; }
+  .settings-actions, .emergency-actions, .settings-lock { padding-left: 14px; padding-right: 14px; }
+  .settings-lock input { min-width: 0; width: 100%; }
+  .settings-form > button[type="submit"] { margin: 0 14px 14px; }
+  .settings-message { margin: 0 14px 14px; }
+
+  /* Body padding tightening */
+  .body-copy { padding: 0 14px; }
+  h2 { padding: 14px 14px 0; }
+  .score-list, .bars { padding: 0 14px 14px; }
+}
+
+@media (max-width: 480px) {
+  body { font-size: 12.5px; }
+  .topbar-right .account-chip small { display: none; }
+  .topbar-right .account-chip strong { font-size: 12px; }
+  .btn-deposit { padding: 7px 10px; }
+  .metric strong { font-size: 16px; }
+  .chart-canvas-wrap { height: 240px; }
 }
