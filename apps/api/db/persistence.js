@@ -194,19 +194,23 @@ export async function ensureIntegrationKeyTable() {
 
 export async function loadIntegrationKeys() {
   try {
-    const result = await query(`select integration, payload, updated_at from integration_keys`, []);
-    const map = {};
-    for (const row of result?.rows || []) {
-      map[row.integration] = {
-        payload: row.payload || {},
-        updatedAt: row.updated_at?.toISOString?.() || null
-      };
-    }
-    return map;
+    return await loadIntegrationKeysStrict();
   } catch (error) {
     console.warn(`Postgres integration_keys read skipped: ${error.message}`);
     return {};
   }
+}
+
+export async function loadIntegrationKeysStrict() {
+  const result = await query(`select integration, payload, updated_at from integration_keys`, []);
+  const map = {};
+  for (const row of result?.rows || []) {
+    map[row.integration] = {
+      payload: row.payload || {},
+      updatedAt: row.updated_at?.toISOString?.() || null
+    };
+  }
+  return map;
 }
 
 export async function saveIntegrationKey(integration, payload) {

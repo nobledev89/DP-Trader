@@ -10,6 +10,7 @@ import {
   persistPositions,
   ensureIntegrationKeyTable,
   loadIntegrationKeys,
+  loadIntegrationKeysStrict,
   saveIntegrationKey,
   deleteIntegrationKey
 } from "../apps/api/db/persistence.js";
@@ -38,6 +39,12 @@ export async function ensureBootstrap() {
 
 export async function refreshStoredIntegrationKeys() {
   await bootstrapPersistedIntegrationKeys(globalState.store);
+}
+
+export async function refreshStoredIntegrationKeysStrict() {
+  await ensureIntegrationKeyTable();
+  const stored = await loadIntegrationKeysStrict();
+  applyStoredIntegrationKeys(globalState.store, stored);
 }
 
 export function configForStore(config, store) {
@@ -166,6 +173,10 @@ export async function clearIntegrations(body, store) {
 async function bootstrapPersistedIntegrationKeys(store) {
   await ensureIntegrationKeyTable();
   const stored = await loadIntegrationKeys();
+  applyStoredIntegrationKeys(store, stored);
+}
+
+function applyStoredIntegrationKeys(store, stored) {
   for (const [key, value] of Object.entries(stored)) {
     store.integrationSecrets[key] = value.payload || {};
     store.integrations[key] = {

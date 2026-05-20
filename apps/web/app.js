@@ -554,7 +554,7 @@ async function clearSavedKeys() {
 
 async function fetchJson(url) {
   const response = await fetch(url);
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw new Error(await responseErrorMessage(response));
   return response.json();
 }
 
@@ -564,7 +564,7 @@ async function postJson(url, body) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw new Error(await responseErrorMessage(response));
   return response.json();
 }
 
@@ -574,8 +574,18 @@ async function deleteJson(url, body) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body || {})
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw new Error(await responseErrorMessage(response));
   return response.json();
+}
+
+async function responseErrorMessage(response) {
+  const text = await response.text();
+  try {
+    const body = JSON.parse(text);
+    return body.error || text || response.statusText;
+  } catch {
+    return text || response.statusText;
+  }
 }
 
 async function maybeRunAutoTrade() {
