@@ -47,6 +47,10 @@ a { color: var(--accent); text-decoration: none; }
   flex-direction: column;
   align-items: stretch;
   gap: 14px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
 }
 .brand { display: flex; justify-content: center; padding: 4px 0 6px; }
 .brand-mark {
