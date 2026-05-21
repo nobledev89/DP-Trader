@@ -3,6 +3,11 @@ const navItems = [...document.querySelectorAll(".nav-item")];
 let state = null;
 let integrationsState = {};
 let riskSettingsState = null;
+let historyState = null;
+let historyRangeDays = 30;
+let historySearchTerm = "";
+let historyOutcomeFilter = "all";
+let historyInFlight = null;
 
 let selectedSymbol = null;
 let activeFilter = "popular";
@@ -69,6 +74,24 @@ document.querySelector("#resetRiskSettingsButton").addEventListener("click", res
 document.querySelector("#cancelOrdersButton").addEventListener("click", () => emergencyAction("cancel-orders"));
 document.querySelector("#closePositionsButton").addEventListener("click", () => emergencyAction("close-positions"));
 
+document.querySelectorAll("#historyRangeGroup .interval").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#historyRangeGroup .interval").forEach((b) => b.classList.toggle("active", b === btn));
+    historyRangeDays = Number(btn.dataset.historyRange) || 30;
+    refreshHistory({ force: true });
+  });
+});
+document.querySelector("#historyRefreshButton")?.addEventListener("click", () => refreshHistory({ force: true }));
+document.querySelector("#historyExportButton")?.addEventListener("click", exportHistoryCsv);
+document.querySelector("#historySearch")?.addEventListener("input", (event) => {
+  historySearchTerm = event.target.value.trim().toLowerCase();
+  renderHistoryTable();
+});
+document.querySelector("#historyOutcomeFilter")?.addEventListener("change", (event) => {
+  historyOutcomeFilter = event.target.value;
+  renderHistoryTable();
+});
+
 document.querySelectorAll("#instrumentTabs .tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     document.querySelectorAll("#instrumentTabs .tab").forEach((t) => t.classList.toggle("active", t === tab));
@@ -104,6 +127,11 @@ function showPage(pageId) {
   }
   if (pageId === "settings") {
     refreshSettingsPanels().catch((error) => showSettingsMessage(`Could not load settings: ${error.message}`, "error"));
+  }
+  if (pageId === "history") {
+    refreshHistory({ force: !historyState }).catch((error) => {
+      setText("#historyGeneratedAt", `Could not load: ${error.message}`);
+    });
   }
 }
 
@@ -998,6 +1026,364 @@ showPage(location.hash.slice(1) || localStorage.getItem(activePageKey) || "marke
 window.addEventListener("hashchange", () => showPage(location.hash.slice(1) || "markets"));
 safeRefresh();
 setInterval(safeRefresh, 5000);
+
+/* ───── Trade History / Reporting ───── */
+async function refreshHistory({ force = false } = {}) {
+  if (historyInFlight) return historyInFlight;
+  if (!force && historyState && historyState.rangeDays === historyRangeDays) {
+    renderHistory(historyState);
+    return historyState;
+  }
+  setText("#historyGeneratedAt", "Loading report...");
+  historyInFlight = fetchJson(`/api/history?rangeDays=${historyRangeDays}`)
+    .then((data) => {
+      historyState = data;
+      renderHistory(data);
+      return data;
+    })
+    .catch((error) => {
+      setText("#historyGeneratedAt", `Could not load report: ${error.message}`);
+      throw error;
+    })
+    .finally(() => {
+      historyInFlight = null;
+    });
+  return historyInFlight;
+}
+
+function renderHistory(data) {
+  const summary = data.summary || {};
+  const netPnl = Number(summary.netPnl || 0);
+  const netEl = document.querySelector("#hsNetPnl");
+  if (netEl) {
+    netEl.textContent = money(netPnl);
+    netEl.classList.toggle("up", netPnl > 0);
+    netEl.classList.toggle("down", netPnl < 0);
+  }
+  const winRate = Number(summary.winRate || 0);
+  setText("#hsWinRate", `${Math.round(winRate * 100)}%`);
+  setText("#hsWinRateMeta", `${summary.wins || 0}W / ${summary.losses || 0}L`);
+  setText("#hsProfitFactor", summary.profitFactor == null
+    ? "∞"
+    : Number(summary.profitFactor).toFixed(2));
+  setText("#hsProfitFactorMeta", summary.grossProfit != null
+    ? `${money(summary.grossProfit)} profit vs ${money(summary.grossLoss)} loss`
+    : "Gross profit vs gross loss");
+  setText("#hsAvgWinLoss", `${money(summary.avgWin || 0)} / ${money(-(summary.avgLoss || 0))}`);
+  setText("#hsAvgWinLossMeta", `${summary.totalFills || 0} fills tracked`);
+  setText("#hsTotalTrades", String(summary.totalTrades || 0));
+  setText("#hsAvgHold", summary.totalTrades
+    ? `Avg hold ${formatMinutes(summary.avgHoldMinutes || 0)}`
+    : "No closed trades yet");
+  setText("#hsNetPnlMeta", summary.firstTradeAt
+    ? `${dateShort(summary.firstTradeAt)} → ${dateShort(summary.lastTradeAt)}`
+    : "No closed trades yet");
+
+  setText("#historyGeneratedAt", data.generatedAt
+    ? `Updated ${time(data.generatedAt)} · ${data.rangeDays}d window`
+    : `${data.rangeDays}d window`);
+  setText("#hsEquityMeta", data.equityCurve?.length
+    ? `${data.equityCurve.length} points · ${dateShort(data.equityCurve[0].at)} → ${dateShort(data.equityCurve.at(-1).at)}`
+    : "No equity history yet");
+  setText("#hsDailyMeta", `Last ${data.rangeDays} sessions`);
+
+  renderEquityChart(data.equityCurve || []);
+  renderDailyPnlChart(data.dailyPnl || []);
+  renderHistoryDonut(summary);
+  renderSymbolBars(data.symbolStats || []);
+  renderHistoryTable();
+}
+
+function renderEquityChart(points) {
+  const svg = document.querySelector("#historyEquityChart");
+  if (!svg) return;
+  const W = 1000, H = 320;
+  const padL = 50, padR = 18, padT = 18, padB = 26;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  if (!points.length) {
+    svg.innerHTML = emptyChartMarkup(W, H, "Equity data starts appearing as snapshots accumulate");
+    return;
+  }
+  const values = points.map((point) => Number(point.equity));
+  let lo = Math.min(...values);
+  let hi = Math.max(...values);
+  if (lo === hi) { lo -= 1; hi += 1; }
+  const pad = (hi - lo) * 0.08;
+  const yMin = lo - pad;
+  const yMax = hi + pad;
+  const xs = points.map((point, i) => padL + (i * innerW) / Math.max(1, points.length - 1));
+  const ys = points.map((point) => padT + (1 - (Number(point.equity) - yMin) / (yMax - yMin)) * innerH);
+  let pathD = "";
+  for (let i = 0; i < points.length; i++) {
+    pathD += `${i === 0 ? "M" : "L"}${xs[i].toFixed(1)},${ys[i].toFixed(1)} `;
+  }
+  const areaD = `${pathD}L${xs.at(-1).toFixed(1)},${(padT + innerH).toFixed(1)} L${xs[0].toFixed(1)},${(padT + innerH).toFixed(1)} Z`;
+  const gridLines = 4;
+  let grid = "";
+  for (let i = 0; i <= gridLines; i++) {
+    const y = padT + (innerH * i) / gridLines;
+    const value = yMax - ((yMax - yMin) * i) / gridLines;
+    grid += `<line class="grid-line" x1="${padL}" y1="${y.toFixed(1)}" x2="${(padL + innerW).toFixed(1)}" y2="${y.toFixed(1)}"/>`;
+    grid += `<text class="axis-label" x="${(padL - 6).toFixed(1)}" y="${(y + 3).toFixed(1)}" text-anchor="end">${money(value)}</text>`;
+  }
+  const xLabelCount = Math.min(6, points.length);
+  let xAxis = "";
+  for (let i = 0; i < xLabelCount; i++) {
+    const idx = Math.round((i * (points.length - 1)) / Math.max(1, xLabelCount - 1));
+    const x = xs[idx];
+    xAxis += `<text class="axis-label" x="${x.toFixed(1)}" y="${(padT + innerH + 14).toFixed(1)}" text-anchor="middle">${dateShort(points[idx].at)}</text>`;
+  }
+  const defs = `
+    <defs>
+      <linearGradient id="equityStroke" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#1ec479"/>
+        <stop offset="100%" stop-color="#2962ff"/>
+      </linearGradient>
+      <linearGradient id="equityFill" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#1ec479" stop-opacity=".45"/>
+        <stop offset="100%" stop-color="#1ec479" stop-opacity="0"/>
+      </linearGradient>
+    </defs>`;
+  const startEquity = Number(points[0].equity);
+  const yBase = padT + (1 - (startEquity - yMin) / (yMax - yMin)) * innerH;
+  const baseline = `<line class="equity-baseline" x1="${padL}" y1="${yBase.toFixed(1)}" x2="${(padL + innerW).toFixed(1)}" y2="${yBase.toFixed(1)}"/>`;
+  svg.innerHTML = `${defs}${grid}<path class="equity-fill" d="${areaD}"/><path class="equity-line" d="${pathD}"/>${baseline}${xAxis}`;
+}
+
+function renderDailyPnlChart(days) {
+  const svg = document.querySelector("#historyDailyChart");
+  if (!svg) return;
+  const W = 1000, H = 280;
+  const padL = 50, padR = 18, padT = 18, padB = 28;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  if (!days.length) {
+    svg.innerHTML = emptyChartMarkup(W, H, "Daily P&L populates after the first closed trade");
+    return;
+  }
+  const values = days.map((day) => Number(day.pnl));
+  const maxAbs = Math.max(1, ...values.map(Math.abs));
+  const yMin = -maxAbs * 1.1;
+  const yMax = maxAbs * 1.1;
+  const yScale = (value) => padT + (1 - (value - yMin) / (yMax - yMin)) * innerH;
+  const zeroY = yScale(0);
+  const stepX = innerW / days.length;
+  const barW = Math.max(3, stepX * 0.62);
+  const gridLines = 4;
+  let grid = "";
+  for (let i = 0; i <= gridLines; i++) {
+    const y = padT + (innerH * i) / gridLines;
+    const value = yMax - ((yMax - yMin) * i) / gridLines;
+    grid += `<line class="grid-line" x1="${padL}" y1="${y.toFixed(1)}" x2="${(padL + innerW).toFixed(1)}" y2="${y.toFixed(1)}"/>`;
+    grid += `<text class="axis-label" x="${(padL - 6).toFixed(1)}" y="${(y + 3).toFixed(1)}" text-anchor="end">${moneyCompact(value)}</text>`;
+  }
+  let bars = "";
+  days.forEach((day, i) => {
+    const x = padL + i * stepX + (stepX - barW) / 2;
+    const value = Number(day.pnl);
+    const yTop = yScale(Math.max(0, value));
+    const yBottom = yScale(Math.min(0, value));
+    const height = Math.max(1, Math.abs(yBottom - yTop));
+    const cls = value > 0 ? "bar-positive" : value < 0 ? "bar-negative" : "bar-empty";
+    bars += `<rect class="${cls}" x="${x.toFixed(1)}" y="${yTop.toFixed(1)}" width="${barW.toFixed(1)}" height="${height.toFixed(1)}" rx="2"><title>${dateShort(day.date)}: ${money(value)} · ${day.trades} trades</title></rect>`;
+  });
+  const xLabelCount = Math.min(7, days.length);
+  let xAxis = "";
+  for (let i = 0; i < xLabelCount; i++) {
+    const idx = Math.round((i * (days.length - 1)) / Math.max(1, xLabelCount - 1));
+    const x = padL + idx * stepX + stepX / 2;
+    xAxis += `<text class="axis-label" x="${x.toFixed(1)}" y="${(padT + innerH + 16).toFixed(1)}" text-anchor="middle">${dateShort(days[idx].date)}</text>`;
+  }
+  const baseline = `<line class="axis-baseline" x1="${padL}" y1="${zeroY.toFixed(1)}" x2="${(padL + innerW).toFixed(1)}" y2="${zeroY.toFixed(1)}"/>`;
+  svg.innerHTML = `${grid}${bars}${baseline}${xAxis}`;
+}
+
+function renderHistoryDonut(summary) {
+  const svg = document.querySelector("#historyDonut");
+  if (!svg) return;
+  const wins = Number(summary.wins || 0);
+  const losses = Number(summary.losses || 0);
+  const total = wins + losses;
+  const winRate = total > 0 ? wins / total : 0;
+  const cx = 80, cy = 80, r = 64;
+  const circumference = 2 * Math.PI * r;
+  const winLen = total ? (wins / total) * circumference : 0;
+  const lossLen = total ? (losses / total) * circumference : 0;
+  svg.innerHTML = `
+    <circle class="donut-bg" cx="${cx}" cy="${cy}" r="${r}"/>
+    ${total ? `
+      <circle class="donut-seg win"
+        cx="${cx}" cy="${cy}" r="${r}"
+        stroke-dasharray="${winLen.toFixed(2)} ${(circumference - winLen).toFixed(2)}"
+        transform="rotate(-90 ${cx} ${cy})"/>
+      <circle class="donut-seg loss"
+        cx="${cx}" cy="${cy}" r="${r}"
+        stroke-dasharray="${lossLen.toFixed(2)} ${(circumference - lossLen).toFixed(2)}"
+        stroke-dashoffset="${(-winLen).toFixed(2)}"
+        transform="rotate(-90 ${cx} ${cy})"/>
+    ` : ""}
+    <text class="donut-center-rate" x="${cx}" y="${cy + 4}">${total ? Math.round(winRate * 100) + "%" : "—"}</text>
+    <text class="donut-center-label" x="${cx}" y="${cy + 22}">Win rate</text>
+  `;
+  const legend = document.querySelector("#historyDonutLegend");
+  if (legend) {
+    legend.innerHTML = `
+      <div class="legend-row"><span><span class="dot win"></span>Wins</span><strong>${wins} · ${money(summary.grossProfit || 0)}</strong></div>
+      <div class="legend-row"><span><span class="dot loss"></span>Losses</span><strong>${losses} · ${money(-(summary.grossLoss || 0))}</strong></div>
+      <div class="legend-row"><span class="muted">Best trade</span><strong>${summary.bestTrade ? money(summary.bestTrade.pnl) + " · " + summary.bestTrade.symbol : "—"}</strong></div>
+      <div class="legend-row"><span class="muted">Worst trade</span><strong>${summary.worstTrade ? money(summary.worstTrade.pnl) + " · " + summary.worstTrade.symbol : "—"}</strong></div>
+    `;
+  }
+  const donutMeta = document.querySelector("#hsDonutMeta");
+  if (donutMeta) {
+    donutMeta.textContent = total ? `${total} closed trades` : "No closed trades yet";
+  }
+}
+
+function renderSymbolBars(symbolStats) {
+  const container = document.querySelector("#historySymbolBars");
+  if (!container) return;
+  if (!symbolStats.length) {
+    container.innerHTML = `<div class="symbol-empty">No symbol performance yet. Trades will roll up here after they close.</div>`;
+    setText("#hsSymbolMeta", "Top symbols by net P&L");
+    return;
+  }
+  const top = symbolStats.slice(0, 8);
+  const maxAbs = Math.max(1, ...top.map((entry) => Math.abs(entry.netPnl)));
+  container.innerHTML = top.map((entry) => {
+    const negative = entry.netPnl < 0;
+    const widthPct = Math.max(4, Math.min(100, (Math.abs(entry.netPnl) / maxAbs) * 100));
+    return `
+      <div class="symbol-bar ${negative ? "is-negative" : ""}">
+        <div class="symbol-head">
+          <strong>${escapeHtml(entry.symbol)}</strong>
+          <small>${entry.trades} trades · ${Math.round((entry.winRate || 0) * 100)}% win</small>
+        </div>
+        <div class="symbol-track"><div class="symbol-fill" style="width:${widthPct.toFixed(1)}%"></div></div>
+        <div class="symbol-head">
+          <span class="muted">${money(entry.volume)} traded</span>
+          <strong class="${negative ? "down" : "up"}">${money(entry.netPnl)}</strong>
+        </div>
+      </div>
+    `;
+  }).join("");
+  setText("#hsSymbolMeta", `${symbolStats.length} symbols · top ${top.length}`);
+}
+
+function renderHistoryTable() {
+  const list = document.querySelector("#historyTradesTable");
+  if (!list) return;
+  const trades = historyState?.closedTrades || [];
+  const filtered = trades.filter((trade) => {
+    if (historyOutcomeFilter !== "all" && trade.outcome !== historyOutcomeFilter) return false;
+    if (!historySearchTerm) return true;
+    const haystack = `${trade.symbol} ${trade.direction}`.toLowerCase();
+    return haystack.includes(historySearchTerm);
+  });
+  setText("#historyTradeCount", `${filtered.length} of ${trades.length} trades`);
+  if (!trades.length) {
+    list.innerHTML = `
+      <div class="history-row header"><span>Symbol</span><span>Direction</span><span>Qty</span><span>Entry</span><span>Exit</span><span>P&L</span><span>Hold</span><span>Closed</span></div>
+      <div class="history-empty">No closed trades yet. Filled orders are paired FIFO to form closed trades.</div>
+    `;
+    return;
+  }
+  list.innerHTML = `
+    <div class="history-row header"><span>Symbol</span><span>Direction</span><span>Qty</span><span>Entry</span><span>Exit</span><span>P&amp;L</span><span>Hold</span><span>Closed</span></div>
+    ${filtered.length ? filtered.slice(0, 250).map((trade) => `
+      <div class="history-row">
+        <strong>${escapeHtml(trade.symbol)}</strong>
+        <span><span class="direction-pill ${trade.direction}">${trade.direction}</span></span>
+        <span>${formatQty(trade.qty)}</span>
+        <span>${money(trade.entryPrice)}</span>
+        <span>${money(trade.exitPrice)}</span>
+        <span><span class="outcome-pill ${trade.outcome}">${money(trade.pnl)} · ${percent(trade.returnPct)}</span></span>
+        <span>${formatMinutes(trade.holdMinutes)}</span>
+        <span>${dateTimeShort(trade.exitAt)}</span>
+      </div>
+    `).join("") : `<div class="history-empty">No trades match your filter.</div>`}
+  `;
+}
+
+function exportHistoryCsv() {
+  const trades = historyState?.closedTrades || [];
+  if (!trades.length) {
+    setText("#historyGeneratedAt", "Nothing to export yet.");
+    return;
+  }
+  const header = ["symbol", "direction", "qty", "entry_price", "exit_price", "pnl", "return_pct", "hold_minutes", "entry_at", "exit_at", "outcome"];
+  const rows = trades.map((trade) => [
+    trade.symbol,
+    trade.direction,
+    trade.qty,
+    trade.entryPrice,
+    trade.exitPrice,
+    trade.pnl,
+    trade.returnPct,
+    trade.holdMinutes,
+    trade.entryAt,
+    trade.exitAt,
+    trade.outcome
+  ]);
+  const csv = [header, ...rows]
+    .map((row) => row.map((cell) => csvCell(cell)).join(","))
+    .join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `dp-trader-history-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function csvCell(value) {
+  if (value == null) return "";
+  const str = String(value);
+  if (/[",\r\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+  return str;
+}
+
+function emptyChartMarkup(width, height, message) {
+  return `<text class="axis-label" x="${width / 2}" y="${height / 2}" text-anchor="middle">${escapeHtml(message)}</text>`;
+}
+
+function formatMinutes(minutes) {
+  const value = Number(minutes) || 0;
+  if (value < 60) return `${value}m`;
+  const hours = Math.floor(value / 60);
+  const rest = value % 60;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
+function formatQty(value) {
+  if (!Number.isFinite(Number(value))) return "—";
+  const num = Number(value);
+  return Number.isInteger(num) ? String(num) : num.toFixed(2);
+}
+
+function dateShort(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat([], { month: "short", day: "numeric" }).format(date);
+}
+
+function dateTimeShort(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
+}
+
+function moneyCompact(value) {
+  const num = Number(value) || 0;
+  if (Math.abs(num) >= 1000) {
+    return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1, style: "currency", currency: "USD" }).format(num);
+  }
+  return money(num);
+}
 
 function priceFlashClass(bar) {
   const previous = previousPrices.get(bar.symbol);

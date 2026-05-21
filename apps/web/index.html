@@ -28,6 +28,10 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 9h8M8 13h8M8 17h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             <span>Portfolio</span>
           </button>
+          <button class="nav-item" data-page="history" title="Trade History">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5m0 14h16M8 16V9m4 7v-4m4 4v-8m4 8V7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>History</span>
+          </button>
           <button class="nav-item" data-page="strategy" title="Strategy">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             <span>Strategy</span>
@@ -185,6 +189,91 @@
             <div id="positionsTable" class="table"></div>
             <div id="ordersTable" class="table"></div>
           </div>
+        </section>
+
+        <!-- HISTORY / REPORTING -->
+        <section id="history" class="page">
+          <div class="history-toolbar panel">
+            <div class="history-toolbar-left">
+              <h2 class="history-title">Trade History &amp; Reporting</h2>
+              <span class="muted" id="historyGeneratedAt">Loading report</span>
+            </div>
+            <div class="history-toolbar-right">
+              <div class="interval-group" id="historyRangeGroup" role="group" aria-label="Report range">
+                <button class="interval" data-history-range="7">7d</button>
+                <button class="interval active" data-history-range="30">30d</button>
+                <button class="interval" data-history-range="90">90d</button>
+                <button class="interval" data-history-range="180">180d</button>
+              </div>
+              <button class="button secondary" id="historyExportButton" type="button">Export CSV</button>
+              <button class="button primary" id="historyRefreshButton" type="button">Refresh</button>
+            </div>
+          </div>
+
+          <div class="metric-row history-metrics">
+            <article class="metric"><span>Net Realized P&amp;L</span><strong id="hsNetPnl">$0.00</strong><small id="hsNetPnlMeta">No closed trades yet</small></article>
+            <article class="metric"><span>Win Rate</span><strong id="hsWinRate">0%</strong><small id="hsWinRateMeta">0W / 0L</small></article>
+            <article class="metric"><span>Profit Factor</span><strong id="hsProfitFactor">0.00</strong><small id="hsProfitFactorMeta">Gross profit vs gross loss</small></article>
+            <article class="metric"><span>Avg Win / Loss</span><strong id="hsAvgWinLoss">$0 / $0</strong><small id="hsAvgWinLossMeta">Per closed trade</small></article>
+            <article class="metric"><span>Total Trades</span><strong id="hsTotalTrades">0</strong><small id="hsAvgHold">Avg hold —</small></article>
+          </div>
+
+          <div class="history-grid">
+            <section class="panel chart-panel chart-equity">
+              <div class="section-head">
+                <h2>Equity Curve</h2>
+                <span class="muted" id="hsEquityMeta">Account equity over time</span>
+              </div>
+              <div class="chart-canvas-wrap chart-canvas-medium">
+                <svg id="historyEquityChart" class="report-chart" viewBox="0 0 1000 320" preserveAspectRatio="none"></svg>
+              </div>
+            </section>
+
+            <section class="panel chart-panel chart-donut">
+              <div class="section-head">
+                <h2>Win / Loss Mix</h2>
+                <span class="muted" id="hsDonutMeta">Closed trade outcomes</span>
+              </div>
+              <div class="donut-wrap">
+                <svg id="historyDonut" class="donut-svg" viewBox="0 0 160 160"></svg>
+                <div class="donut-legend" id="historyDonutLegend"></div>
+              </div>
+            </section>
+
+            <section class="panel chart-panel chart-daily">
+              <div class="section-head">
+                <h2>Daily P&amp;L</h2>
+                <span class="muted" id="hsDailyMeta">Realized profit per day</span>
+              </div>
+              <div class="chart-canvas-wrap chart-canvas-medium">
+                <svg id="historyDailyChart" class="report-chart" viewBox="0 0 1000 280" preserveAspectRatio="none"></svg>
+              </div>
+            </section>
+
+            <section class="panel chart-panel chart-symbols">
+              <div class="section-head">
+                <h2>By Symbol</h2>
+                <span class="muted" id="hsSymbolMeta">Top symbols by net P&amp;L</span>
+              </div>
+              <div id="historySymbolBars" class="symbol-bars"></div>
+            </section>
+          </div>
+
+          <section class="panel history-table-panel">
+            <div class="section-head history-table-head">
+              <h2>Closed Trades</h2>
+              <div class="history-filters">
+                <input id="historySearch" type="search" placeholder="Filter by symbol or direction" autocomplete="off">
+                <select id="historyOutcomeFilter">
+                  <option value="all">All outcomes</option>
+                  <option value="win">Wins</option>
+                  <option value="loss">Losses</option>
+                </select>
+                <span class="muted" id="historyTradeCount">0 trades</span>
+              </div>
+            </div>
+            <div id="historyTradesTable" class="table history-table"></div>
+          </section>
         </section>
 
         <!-- STRATEGY -->

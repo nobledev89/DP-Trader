@@ -17,6 +17,8 @@ import {
   persistAutoTradeCycle,
   persistEvent,
   loadRecentEvents,
+  loadFilledOrders,
+  loadEquitySnapshots,
   persistOrder,
   persistOrders,
   persistPositions,
@@ -30,6 +32,7 @@ import {
   saveIntegrationKey,
   deleteIntegrationKey
 } from "./db/persistence.js";
+import { buildTradeHistory } from "./domain/tradeHistory.js";
 
 const config = readConfig();
 const store = createStore();
@@ -143,6 +146,27 @@ async function handleApi(req, res, url, cfg, state) {
         alpacaConfigured: Boolean(requestConfig.alpaca?.key && requestConfig.alpaca?.secret)
       },
       events: state.events
+    });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/history") {
+    const rangeDays = Math.max(7, Math.min(180, Number(url.searchParams.get("rangeDays")) || 30));
+    const limit = Math.max(50, Math.min(2000, Number(url.searchParams.get("limit")) || 500));
+    const persistedOrders = await loadFilledOrders(limit);
+    const localOrders = Array.isArray(state.orders) ? state.orders : [];
+    const orders = mergeOrdersById(persistedOrders, localOrders);
+    const equitySnapshots = await loadEquitySnapshots(720);
+    const history = buildTradeHistory({ orders, equitySnapshots, rangeDays });
+    sendJson(res, 200, {
+      ...history,
+      account: {
+        equity: state.account?.equity ?? null,
+        dayPnl: state.account?.dayPnl ?? null,
+        source: state.account?.source || null
+      },
+      rangeDays,
+      generatedAt: new Date().toISOString()
     });
     return;
   }
@@ -309,6 +333,21 @@ async function refreshAlpacaReadOnlyData(cfg, state) {
     appendEvent(state, "warning", error.message);
     persistEvent("warning", error.message).catch(() => {});
   }
+}
+
+function mergeOrdersById(primary, secondary) {
+  const byKey = new Map();
+  for (const order of [...primary, ...secondary]) {
+    if (!order) continue;
+    const key = order.id || order.clientOrderId || `${order.symbol}-${order.createdAt}-${order.side}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, order);
+      continue;
+    }
+    byKey.set(key, { ...existing, ...order });
+  }
+  return [...byKey.values()];
 }
 
 function summarizeState(state) {

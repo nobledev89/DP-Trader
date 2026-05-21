@@ -287,6 +287,69 @@ export async function saveAppSetting(key, payload) {
   }
 }
 
+export async function loadFilledOrders(limit = 500) {
+  try {
+    const result = await query(
+      `select id, client_order_id, symbol, side, qty, type, limit_price, stop_price,
+              target_price, status, filled_qty, filled_avg_price, ai_confidence,
+              expected_r, created_at, updated_at, raw
+       from orders
+       where coalesce(filled_qty, 0) > 0
+          or status in ('filled', 'partially_filled', 'done_for_day', 'closed', 'accepted_paper_sim')
+       order by coalesce(created_at, updated_at) desc
+       limit $1`,
+      [limit]
+    );
+    return (result?.rows || []).map((row) => ({
+      id: row.id,
+      clientOrderId: row.client_order_id,
+      symbol: row.symbol,
+      side: row.side,
+      qty: numberOrNull(row.qty),
+      type: row.type,
+      limitPrice: numberOrNull(row.limit_price),
+      stopPrice: numberOrNull(row.stop_price),
+      targetPrice: numberOrNull(row.target_price),
+      status: row.status,
+      filledQty: numberOrNull(row.filled_qty),
+      filledAvgPrice: numberOrNull(row.filled_avg_price),
+      aiConfidence: numberOrNull(row.ai_confidence),
+      expectedR: numberOrNull(row.expected_r),
+      createdAt: row.created_at?.toISOString?.() || row.updated_at?.toISOString?.() || null,
+      updatedAt: row.updated_at?.toISOString?.() || null,
+      raw: row.raw || {}
+    }));
+  } catch (error) {
+    console.warn(`Postgres orders read skipped: ${error.message}`);
+    return [];
+  }
+}
+
+export async function loadEquitySnapshots(limit = 720) {
+  try {
+    const result = await query(
+      `select equity, buying_power, day_pnl, status, source, created_at
+       from account_snapshots
+       order by created_at desc
+       limit $1`,
+      [limit]
+    );
+    return (result?.rows || [])
+      .map((row) => ({
+        equity: numberOrNull(row.equity),
+        buyingPower: numberOrNull(row.buying_power),
+        dayPnl: numberOrNull(row.day_pnl),
+        status: row.status,
+        source: row.source,
+        createdAt: row.created_at?.toISOString?.() || null
+      }))
+      .reverse();
+  } catch (error) {
+    console.warn(`Postgres account snapshots read skipped: ${error.message}`);
+    return [];
+  }
+}
+
 export async function loadRecentEvents(limit = 100) {
   try {
     const result = await query(
