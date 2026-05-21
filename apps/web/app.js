@@ -68,6 +68,7 @@ async function emergencyAction(action) {
   }
 }
 document.querySelector("#settingsForm").addEventListener("submit", saveSettings);
+document.querySelector("#settingsGrid").addEventListener("click", handleSettingsGridClick);
 document.querySelector("#riskSettingsForm").addEventListener("submit", saveRiskSettings);
 document.querySelector("#clearKeysButton").addEventListener("click", clearSavedKeys);
 document.querySelector("#resetRiskSettingsButton").addEventListener("click", resetRiskSettings);
@@ -588,6 +589,7 @@ function renderSettings(integrations) {
         : "Not configured yet";
     const fields = integration.required || integrationFields[key] || ["apiKey"];
     const suffixes = integration.suffixes || {};
+    const canClear = integration.source !== "environment" && (configured || incomplete);
     return `
     <div class="setting-card">
       <label>${integration.label || title(key)}<span class="${configured ? "up" : "down"}">${sourceLabel}</span></label>
@@ -595,6 +597,7 @@ function renderSettings(integrations) {
         <input autocomplete="off" type="password" placeholder="${fieldPlaceholder(key, field, suffixes[field])}" data-integration="${key}" data-field="${field}">
       `).join("")}
       <small class="muted">${hint}</small>
+      ${canClear ? `<button class="button secondary setting-clear" type="button" data-clear-integration="${key}">Clear ${escapeHtml(integration.label || title(key))}</button>` : ""}
     </div>
   `;
   }).join("");
@@ -706,6 +709,21 @@ async function clearSavedKeys() {
     showSettingsMessage("Saved keys cleared from server.", "success");
   } catch (error) {
     showSettingsMessage(`Could not clear keys: ${error.message}`, "error");
+  }
+}
+
+async function handleSettingsGridClick(event) {
+  const button = event.target.closest("[data-clear-integration]");
+  if (!button) return;
+  const integration = button.dataset.clearIntegration;
+  const label = integrationsState[integration]?.label || title(integration);
+  if (!confirm(`Remove saved ${label} key${integration === "alpaca" ? "s" : ""} from the server?`)) return;
+  try {
+    await deleteJson("/api/settings/integrations", { integrations: [integration] });
+    await refreshSettingsPanels();
+    showSettingsMessage(`${label} keys cleared from server.`, "success");
+  } catch (error) {
+    showSettingsMessage(`Could not clear ${label}: ${error.message}`, "error");
   }
 }
 
