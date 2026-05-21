@@ -359,6 +359,7 @@ function summarizeState(state) {
   startOfDay.setHours(0, 0, 0, 0);
   return {
     killSwitch: state.killSwitch,
+    positions: state.positions,
     openPositions: state.positions.length,
     tradesLastHour: state.orders.filter((order) => Date.parse(order.createdAt) >= hourAgo).length,
     tradesToday: state.orders.filter((order) => Date.parse(order.createdAt) >= startOfDay.getTime()).length,

@@ -33,6 +33,7 @@ export function readConfig(env = process.env) {
       maxDailyLossPct: number("MAX_DAILY_LOSS_PCT", 0.75),
       maxRiskPerTradePct: number("MAX_RISK_PER_TRADE_PCT", 0.2),
       maxOpenPositions: number("MAX_OPEN_POSITIONS", 5),
+      maxCorrelatedPositions: number("MAX_CORRELATED_POSITIONS", 1),
       maxTradesPerHour: number("MAX_TRADES_PER_HOUR", 10),
       maxTradesPerDay: number("MAX_TRADES_PER_DAY", 80),
       minRewardRisk: number("MIN_REWARD_RISK", 1.1),

@@ -213,6 +213,7 @@ function summarizeStoreForAuto(store, now) {
   startOfDay.setHours(0, 0, 0, 0);
   return {
     killSwitch: store.killSwitch,
+    positions: store.positions,
     openPositions: store.positions.length,
     tradesLastHour: store.orders.filter((order) => Date.parse(order.createdAt) >= hourAgo).length,
     tradesToday: store.orders.filter((order) => Date.parse(order.createdAt) >= startOfDay.getTime()).length,

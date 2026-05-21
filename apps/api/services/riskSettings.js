@@ -2,6 +2,7 @@ const RISK_SETTING_FIELDS = {
   maxDailyLossPct: { label: "Max daily loss %", min: 0, max: 100, step: 0.01 },
   maxRiskPerTradePct: { label: "Max risk per trade %", min: 0, max: 100, step: 0.01 },
   maxOpenPositions: { label: "Max open positions", min: 0, max: 100, step: 1, integer: true },
+  maxCorrelatedPositions: { label: "Max positions per correlation group", min: 1, max: 20, step: 1, integer: true },
   maxTradesPerHour: { label: "Max trades per hour", min: 0, max: 1000, step: 1, integer: true },
   maxTradesPerDay: { label: "Max trades per day", min: 0, max: 1000, step: 1, integer: true },
   minRewardRisk: { label: "Minimum reward/risk", min: 0, max: 20, step: 0.1 },

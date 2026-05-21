@@ -16,6 +16,7 @@ const baseConfig = {
   maxDailyLossPct: 0.75,
   maxRiskPerTradePct: 0.1,
   maxOpenPositions: 1,
+  maxCorrelatedPositions: 1,
   maxTradesPerHour: 3,
   maxTradesPerDay: 8,
   minRewardRisk: 1.5,
@@ -146,4 +147,40 @@ test("allows fractional crypto position sizing with crypto liquidity gate", () =
   });
   assert.equal(decision.decision, "approved");
   assert.equal(decision.shares, 0.1);
+});
+
+test("rejects additional positions in the same correlation group", () => {
+  const decision = evaluateRisk({
+    signal: { ...baseSignal, symbol: "AMD", avgVolume: 3000000 },
+    account: baseAccount,
+    state: {
+      ...baseState,
+      positions: [{ symbol: "NVDA", qty: 10, side: "long" }]
+    },
+    config: { ...baseConfig, maxOpenPositions: 5, maxCorrelatedPositions: 1 },
+    now: new Date("2026-05-20T14:00:00-04:00")
+  });
+  assert.equal(decision.decision, "rejected");
+  assert.equal(decision.correlationGroup, "semiconductors");
+  assert.deepEqual(decision.correlatedPositions, ["NVDA"]);
+  assert.ok(decision.reasonCodes.includes("correlation_group_limit_reached"));
+});
+
+test("allows multiple open positions across different correlation groups", () => {
+  const decision = evaluateRisk({
+    signal: { ...baseSignal, symbol: "GLD", avgVolume: 3000000 },
+    account: baseAccount,
+    state: {
+      ...baseState,
+      openPositions: 2,
+      positions: [
+        { symbol: "NVDA", qty: 10, side: "long" },
+        { symbol: "BTC/USD", qty: 0.01, side: "long" }
+      ]
+    },
+    config: { ...baseConfig, maxOpenPositions: 5, maxCorrelatedPositions: 1 },
+    now: new Date("2026-05-20T14:00:00-04:00")
+  });
+  assert.equal(decision.decision, "approved");
+  assert.equal(decision.correlationGroup, "precious_metals");
 });

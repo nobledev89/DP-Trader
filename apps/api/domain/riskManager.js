@@ -32,10 +32,14 @@ export function evaluateRisk({ signal, account, state, config, now = new Date() 
   const allowExtendedHoursNow = Boolean(config.allowExtendedHours) && isExtendedHoursEligibleTime(now);
   const isCrypto = signal.assetClass === "crypto";
   const minLiquidity = isCrypto ? Number(config.minCryptoDollarVolume ?? 5000) : config.minAvgVolume;
+  const correlationGroup = symbolCorrelationGroup(signal.symbol);
+  const correlatedPositions = openPositionsInCorrelationGroup(state.positions || [], correlationGroup, signal.symbol);
+  const maxCorrelatedPositions = Number(config.maxCorrelatedPositions ?? 1);
 
   if (state.killSwitch) reasons.push("kill_switch_enabled");
   if (dailyLossPct >= config.maxDailyLossPct) reasons.push("daily_loss_limit_reached");
   if (state.openPositions >= config.maxOpenPositions) reasons.push("max_open_positions_reached");
+  if (correlatedPositions.length >= maxCorrelatedPositions) reasons.push("correlation_group_limit_reached");
   if (state.tradesLastHour >= config.maxTradesPerHour) reasons.push("max_trades_per_hour_reached");
   if (state.tradesToday >= config.maxTradesPerDay) reasons.push("max_trades_per_day_reached");
   if (state.executionErrors >= config.maxExecutionErrors) reasons.push("execution_error_circuit_breaker");
@@ -69,11 +73,36 @@ export function evaluateRisk({ signal, account, state, config, now = new Date() 
     decision: reasons.length ? "rejected" : "approved",
     reasonCodes: reasons.length ? reasons : ["risk_approved"],
     rewardRisk: Number(rewardRisk.toFixed(2)),
+    correlationGroup,
+    correlatedPositions: correlatedPositions.map((position) => position.symbol),
     riskMultiplier: riskSizing.riskMultiplier,
     ...riskSizing,
     shares: sizing.shares,
     maxPositionValue: sizing.maxPositionValue
   };
+}
+
+export function symbolCorrelationGroup(symbol) {
+  const normalized = String(symbol || "").toUpperCase();
+  const groups = [
+    ["broad_index", ["SPY", "QQQ"]],
+    ["mega_cap_tech", ["AAPL", "MSFT", "META", "AMZN", "GOOGL"]],
+    ["semiconductors", ["NVDA", "AMD"]],
+    ["crypto", ["BTC/USD", "ETH/USD", "SOL/USD", "IBIT", "ETHE"]],
+    ["precious_metals", ["GLD", "SLV"]],
+    ["energy", ["USO"]],
+    ["rates_fx", ["TLT", "UUP"]]
+  ];
+  const match = groups.find(([, symbols]) => symbols.includes(normalized));
+  return match ? match[0] : `single_${normalized}`;
+}
+
+function openPositionsInCorrelationGroup(positions, group, nextSymbol) {
+  return positions.filter((position) => (
+    Math.abs(Number(position.qty || 0)) > 0 &&
+    position.symbol !== nextSymbol &&
+    symbolCorrelationGroup(position.symbol) === group
+  ));
 }
 
 export function confidenceRiskMultiplier(confidence) {
