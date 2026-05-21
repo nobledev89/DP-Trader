@@ -504,7 +504,7 @@ function renderRiskRules(risk) {
     ["AI cycle", `${risk.autoTradeIntervalSeconds || 30}s`],
     ["Scalping exits", risk.scalpingEnabled ? "Enabled" : "Disabled"],
     ["Hold window", `${risk.minHoldMinutes || 0}-${risk.maxHoldMinutes || 120}m`],
-    ["Quick profit / stop", `${risk.quickProfitPct || 0.35}% / ${risk.quickStopPct || 0.25}%`]
+    ["Quick profit / stop", `${risk.quickProfitPct || 0.6}% / ${risk.quickStopPct || 0.3}%`]
   ].map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join("");
 }
 

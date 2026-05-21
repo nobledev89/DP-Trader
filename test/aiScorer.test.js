@@ -43,3 +43,21 @@ test("penalizes wide spreads", () => {
 
   assert.ok(wide.probabilityOfSuccess < clean.probabilityOfSuccess);
 });
+
+test("scores a high quality short setup without VWAP bias", () => {
+  const result = scoreSignal({
+    direction: "short",
+    relativeVolume: 1.8,
+    aboveVwap: false,
+    emaSlope: -0.12,
+    rsi: 58,
+    expectedR: 2.1,
+    spreadPct: 0.02,
+    atrPct: 1.2
+  }, { spyTrend: "down" });
+
+  assert.equal(result.decision, "candidate");
+  assert.ok(result.probabilityOfSuccess >= 0.62);
+  assert.ok(result.reasonCodes.includes("vwap_aligned"));
+  assert.ok(result.reasonCodes.includes("market_regime_supportive"));
+});

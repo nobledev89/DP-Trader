@@ -53,7 +53,7 @@ test("submits the top approved signal to Alpaca paper trading", async () => {
   }
 });
 
-test("submits a visible approved signal when LLM advisory rejects it", async () => {
+test("does not submit when configured LLM rejects the heuristic candidate", async () => {
   const originalFetch = globalThis.fetch;
   let orderPosted = false;
   globalThis.fetch = mockAlpacaFetch({
@@ -74,10 +74,10 @@ test("submits a visible approved signal when LLM advisory rejects it", async () 
       store,
       now: new Date("2026-05-20T14:00:00-04:00")
     });
-    assert.equal(result.status, "submitted");
-    assert.equal(orderPosted, true);
-    assert.match(result.ai.modelVersion, /llm_advisory$/);
-    assert.equal(store.orders.length, 1);
+    assert.equal(result.status, "no_trade");
+    assert.equal(result.reason, "ai_rejected_all_candidates");
+    assert.equal(orderPosted, false);
+    assert.equal(store.orders.length, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }

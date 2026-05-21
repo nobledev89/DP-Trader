@@ -34,7 +34,8 @@ test("calculates shares from account risk and stop distance", () => {
   }), {
     shares: 100,
     riskAmount: 100,
-    riskPerShare: 1
+    riskPerShare: 1,
+    riskMultiplier: 1
   });
 });
 
@@ -110,4 +111,17 @@ test("caps shares by buying power position value", () => {
   });
   assert.equal(decision.shares, 2);
   assert.equal(decision.maxPositionValue, 200);
+});
+
+test("scales risk down for lower-confidence auto-trade signals", () => {
+  const decision = evaluateRisk({
+    signal: { ...baseSignal, avgVolume: 3000000, confidence: 0.64 },
+    account: baseAccount,
+    state: baseState,
+    config: baseConfig,
+    now: new Date("2026-05-20T14:00:00-04:00")
+  });
+  assert.equal(decision.decision, "approved");
+  assert.equal(decision.riskMultiplier, 0.5);
+  assert.equal(decision.shares, 50);
 });

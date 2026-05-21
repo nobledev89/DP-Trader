@@ -44,8 +44,8 @@ export function readConfig(env = process.env) {
       autoTradeIntervalSeconds: number("AUTO_TRADE_INTERVAL_SECONDS", 30),
       minHoldMinutes: number("MIN_HOLD_MINUTES", 5),
       maxHoldMinutes: number("MAX_HOLD_MINUTES", 120),
-      quickProfitPct: number("QUICK_PROFIT_PCT", 0.35),
-      quickStopPct: number("QUICK_STOP_PCT", 0.25)
+      quickProfitPct: number("QUICK_PROFIT_PCT", 0.6),
+      quickStopPct: number("QUICK_STOP_PCT", 0.3)
     }
   };
 }

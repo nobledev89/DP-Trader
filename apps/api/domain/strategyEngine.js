@@ -9,6 +9,8 @@ export function generateMarketSnapshot(now = new Date()) {
     const microMove = Math.sin(tick / 2.7 + index * 1.9) * 0.09;
     const price = Number((base + wave + pulse + microMove + index * 0.37).toFixed(2));
     const spreadPct = Number((0.018 + (index % 4) * 0.011).toFixed(3));
+    const emaSlope = Number((Math.cos(tick / 23 + index) * 0.08).toFixed(4));
+    const atr14 = Number(Math.max(0.35, price * 0.0035).toFixed(4));
     return {
       symbol,
       price,
@@ -20,15 +22,15 @@ export function generateMarketSnapshot(now = new Date()) {
       relativeVolume: Number((1.05 + ((Math.floor(tick / 3) + index) % 8) / 10).toFixed(2)),
       spreadPct,
       avgVolume: 2500000 + index * 700000,
-      rsi14: null,
-      ema20: null,
-      ema50: null,
-      emaSlope: 0,
-      atr14: 0,
-      atrPct: 0,
-      aboveVwap: true,
-      aboveEma20: null,
-      aboveEma50: null,
+      rsi14: Number((54 + Math.sin(tick / 31 + index) * 12).toFixed(2)),
+      ema20: Number((price - emaSlope).toFixed(4)),
+      ema50: Number((price - emaSlope * 2).toFixed(4)),
+      emaSlope,
+      atr14,
+      atrPct: Number(((atr14 / price) * 100).toFixed(3)),
+      aboveVwap: price >= Number((price - 0.34 + index * 0.03).toFixed(2)),
+      aboveEma20: emaSlope >= 0,
+      aboveEma50: emaSlope >= 0,
       updatedAt: now.toISOString(),
       source: "simulated"
     };
@@ -36,8 +38,10 @@ export function generateMarketSnapshot(now = new Date()) {
 }
 
 export function buildSignals(marketSnapshot, marketContext = { spyTrend: "up" }) {
-  return marketSnapshot.map((bar, index) => {
+  return marketSnapshot.flatMap((bar, index) => {
     const direction = pickDirection(bar);
+    if (!direction) return [];
+
     const referencePrice = (direction === "long" ? bar.ask : bar.bid) || bar.price;
     const entryPrice = Number(referencePrice.toFixed(2));
 
@@ -48,7 +52,7 @@ export function buildSignals(marketSnapshot, marketContext = { spyTrend: "up" })
     const stopPrice = Number((direction === "long" ? entryPrice - stopDistance : entryPrice + stopDistance).toFixed(2));
     const targetPrice = Number((direction === "long" ? entryPrice + targetDistance : entryPrice - targetDistance).toFixed(2));
 
-    return {
+    return [{
       id: `${bar.symbol}-${bar.updatedAt}`,
       symbol: bar.symbol,
       strategy: pickStrategy(bar, index),
@@ -79,17 +83,19 @@ export function buildSignals(marketSnapshot, marketContext = { spyTrend: "up" })
         aboveEma20: bar.aboveEma20 ?? null,
         source: bar.source
       }
-    };
+    }];
   });
 }
 
 function pickDirection(bar) {
+  if (bar.rsi14 == null || bar.aboveVwap == null) return null;
+
   if (bar.rsi14 != null && bar.aboveVwap != null) {
     if (bar.aboveVwap && bar.rsi14 < 70 && (bar.emaSlope ?? 0) >= 0) return "long";
     if (!bar.aboveVwap && bar.rsi14 > 30 && (bar.emaSlope ?? 0) <= 0) return "short";
     return bar.changePct >= 0 ? "long" : "short";
   }
-  return "long";
+  return null;
 }
 
 function pickStrategy(bar, index) {

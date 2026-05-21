@@ -1,13 +1,15 @@
-export function calculatePositionSize({ equity, entryPrice, stopPrice, maxRiskPerTradePct }) {
-  const riskAmount = equity * (maxRiskPerTradePct / 100);
+export function calculatePositionSize({ equity, entryPrice, stopPrice, maxRiskPerTradePct, confidence }) {
+  const riskMultiplier = confidenceRiskMultiplier(confidence);
+  const riskAmount = equity * ((maxRiskPerTradePct * riskMultiplier) / 100);
   const riskPerShare = Math.abs(entryPrice - stopPrice);
   if (!Number.isFinite(riskPerShare) || riskPerShare <= 0) {
-    return { shares: 0, riskAmount, riskPerShare: 0 };
+    return { shares: 0, riskAmount, riskPerShare: 0, riskMultiplier };
   }
   return {
     shares: Math.max(0, Math.floor(riskAmount / riskPerShare)),
     riskAmount: Number(riskAmount.toFixed(2)),
-    riskPerShare: Number(riskPerShare.toFixed(2))
+    riskPerShare: Number(riskPerShare.toFixed(2)),
+    riskMultiplier
   };
 }
 
@@ -45,7 +47,8 @@ export function evaluateRisk({ signal, account, state, config, now = new Date() 
     equity: account.equity,
     entryPrice: signal.entryPrice,
     stopPrice: signal.stopPrice,
-    maxRiskPerTradePct: config.maxRiskPerTradePct
+    maxRiskPerTradePct: config.maxRiskPerTradePct,
+    confidence: signal.confidence
   });
   const sizing = capPositionByBuyingPower({
     shares: riskSizing.shares,
@@ -60,10 +63,19 @@ export function evaluateRisk({ signal, account, state, config, now = new Date() 
     decision: reasons.length ? "rejected" : "approved",
     reasonCodes: reasons.length ? reasons : ["risk_approved"],
     rewardRisk: Number(rewardRisk.toFixed(2)),
+    riskMultiplier: riskSizing.riskMultiplier,
     ...riskSizing,
     shares: sizing.shares,
     maxPositionValue: sizing.maxPositionValue
   };
+}
+
+export function confidenceRiskMultiplier(confidence) {
+  if (!Number.isFinite(confidence)) return 1;
+  if (confidence >= 0.8) return 1;
+  if (confidence >= 0.7) return 0.75;
+  if (confidence >= 0.62) return 0.5;
+  return 0.25;
 }
 
 export function isAfterNoNewTradesCutoff(now) {

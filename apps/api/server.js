@@ -11,7 +11,7 @@ import { buildSignals } from "./domain/strategyEngine.js";
 import { loadMarketSnapshot, storeMarketSnapshot } from "./domain/marketData.js";
 import { scoreSignal } from "./domain/aiScorer.js";
 import { evaluateRisk } from "./domain/riskManager.js";
-import { runAutoTradeCycle } from "./domain/autoTrader.js";
+import { deriveMarketContext, runAutoTradeCycle } from "./domain/autoTrader.js";
 import {
   persistAccountSnapshot,
   persistAutoTradeCycle,
@@ -117,8 +117,9 @@ async function handleApi(req, res, url, cfg, state) {
     await refreshPersistedEvents(state);
     const market = await loadMarketSnapshot(requestConfig, state);
     storeMarketSnapshot(state, market);
-    const scoredSignals = buildSignals(market).map((signal) => {
-      const ai = scoreSignal(signal, { spyTrend: "up" });
+    const marketContext = deriveMarketContext(market);
+    const scoredSignals = buildSignals(market, marketContext).map((signal) => {
+      const ai = scoreSignal(signal, marketContext);
       const risk = evaluateRisk({
         signal,
         account: state.account,

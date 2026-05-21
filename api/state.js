@@ -2,6 +2,7 @@ import { assertLiveTradingAllowed } from "../apps/api/config.js";
 import { scoreSignal } from "../apps/api/domain/aiScorer.js";
 import { evaluateRisk } from "../apps/api/domain/riskManager.js";
 import { buildSignals } from "../apps/api/domain/strategyEngine.js";
+import { deriveMarketContext } from "../apps/api/domain/autoTrader.js";
 import { loadMarketSnapshot, storeMarketSnapshot } from "../apps/api/domain/marketData.js";
 import { persistStrategySignals } from "../apps/api/db/persistence.js";
 import { hasAlpacaCredentials } from "../apps/api/services/alpacaClient.js";
@@ -23,8 +24,9 @@ export default async function handler(request, response) {
     await refreshPersistedEvents(store);
     const market = await loadMarketSnapshot(requestConfig, store);
     storeMarketSnapshot(store, market);
-    const signals = buildSignals(market).map((signal) => {
-      const ai = scoreSignal(signal, { spyTrend: "up" });
+    const marketContext = deriveMarketContext(market);
+    const signals = buildSignals(market, marketContext).map((signal) => {
+      const ai = scoreSignal(signal, marketContext);
       const risk = evaluateRisk({
         signal,
         account: store.account,

@@ -29,7 +29,7 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
     .map((signal) => {
       const heuristic = scoreSignal(signal, marketContext);
       const risk = evaluateRisk({
-        signal,
+        signal: { ...signal, confidence: heuristic.probabilityOfSuccess },
         account: store.account,
         state: summarizeStoreForAuto(store, now),
         config: config.risk,
@@ -68,19 +68,6 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
     });
     if (ai.decision === "candidate" && ai.probabilityOfSuccess >= minAutoConfidence) {
       chosen = { ...candidate, ai };
-      break;
-    }
-    if (candidate.heuristic.decision === "candidate") {
-      chosen = {
-        ...candidate,
-        ai: {
-          ...candidate.heuristic,
-          modelVersion: `${candidate.heuristic.modelVersion}+llm_advisory`,
-          rationale: `Heuristic score met the ${Math.round(minAutoConfidence * 100)}% execution threshold; LLM advisory did not approve: ${ai.rationale || ai.reasonCodes?.join(", ") || "low_confidence"}`,
-          advisory: ai
-        }
-      };
-      appendEvent(store, "info", `AI using ${candidate.signal.symbol} because the visible score is ${Math.round(candidate.heuristic.probabilityOfSuccess * 100)}% and risk approved; LLM advisory was ${Math.round(ai.probabilityOfSuccess * 100)}%.`);
       break;
     }
     appendEvent(store, "info", `AI rejected ${candidate.signal.symbol}: ${ai.rationale || ai.reasonCodes?.join(", ") || "low_confidence"} (${Math.round(ai.probabilityOfSuccess * 100)}% < ${Math.round(minAutoConfidence * 100)}%)`);
@@ -168,7 +155,7 @@ function summarizeRejectedSignals(scoredSignals) {
   });
 }
 
-function deriveMarketContext(market) {
+export function deriveMarketContext(market) {
   const spy = market.find((bar) => bar.symbol === "SPY");
   if (!spy) return { spyTrend: "unknown" };
   const trend = (spy.changePct ?? 0) >= 0.1 ? "up" : (spy.changePct ?? 0) <= -0.1 ? "down" : "flat";

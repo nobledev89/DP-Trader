@@ -8,11 +8,16 @@ export function scoreSignal(signal, marketContext = {}) {
     score += 0.14;
     reasons.push("relative_volume_high");
   }
-  if (signal.aboveVwap) {
-    score += signal.direction === "long" ? 0.12 : -0.05;
-    reasons.push("vwap_aligned");
+  if (signal.aboveVwap != null) {
+    const vwapAligned = signal.aboveVwap === (signal.direction === "long");
+    score += vwapAligned ? 0.12 : -0.12;
+    reasons.push(vwapAligned ? "vwap_aligned" : "vwap_misaligned");
   }
   if (signal.emaSlope > 0 && signal.direction === "long") {
+    score += 0.1;
+    reasons.push("trend_confirmed");
+  }
+  if (signal.emaSlope < 0 && signal.direction === "short") {
     score += 0.1;
     reasons.push("trend_confirmed");
   }
@@ -25,6 +30,10 @@ export function scoreSignal(signal, marketContext = {}) {
     reasons.push("reward_risk_strong");
   }
   if (marketContext.spyTrend === "up" && signal.direction === "long") {
+    score += 0.06;
+    reasons.push("market_regime_supportive");
+  }
+  if (marketContext.spyTrend === "down" && signal.direction === "short") {
     score += 0.06;
     reasons.push("market_regime_supportive");
   }
