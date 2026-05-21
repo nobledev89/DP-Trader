@@ -274,6 +274,17 @@
         </section>
       </main>
     </div>
+    <div id="loadingOverlay" class="loading-overlay" aria-live="polite" aria-busy="true">
+      <div class="loading-panel">
+        <div class="loading-head">
+          <span id="loadingLabel">Loading dashboard</span>
+          <strong id="loadingPercent">0%</strong>
+        </div>
+        <div class="loading-track"><div id="loadingFill" class="loading-fill"></div></div>
+        <div id="loadingDetail" class="loading-detail">Connecting to trader state</div>
+        <button id="loadingRetryButton" class="button secondary loading-retry" type="button">Retry</button>
+      </div>
+    </div>
     <script src="/app.js" type="module"></script>
   </body>
 </html>

@@ -9,6 +9,9 @@ let activeFilter = "popular";
 let activeInterval = "15m";
 let autoTradeInFlight = false;
 let lastAutoTradeAt = 0;
+let refreshInFlight = null;
+let loadingTimer = null;
+let loadingPercent = 0;
 const autoTradeIntervalMs = 60 * 1000;
 const previousPrices = new Map();
 let aiLogs = readAiLogs();
@@ -30,7 +33,8 @@ const integrationFields = {
 navItems.forEach((item) => {
   item.addEventListener("click", () => showPage(item.dataset.page));
 });
-document.querySelector("#refreshButton").addEventListener("click", refresh);
+document.querySelector("#refreshButton").addEventListener("click", () => refresh({ showLoading: true }));
+document.querySelector("#loadingRetryButton").addEventListener("click", () => safeRefresh({ showLoading: true }));
 document.querySelector("#killSwitchButton").addEventListener("click", async () => {
   await togglePause();
 });
@@ -104,12 +108,33 @@ function showPage(pageId) {
   }
 }
 
-async function refresh() {
-  const appState = await fetchJson("/api/state");
-  state = appState;
-  renderState(appState);
-  if (isSettingsPageActive()) await refreshSettingsPanels();
-  maybeRunAutoTrade();
+async function refresh(options = {}) {
+  if (refreshInFlight) return refreshInFlight;
+  const showLoading = Boolean(options.showLoading || !state);
+  refreshInFlight = doRefresh(showLoading).finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+async function doRefresh(showLoading) {
+  if (showLoading) startLoading("Loading dashboard", "Connecting to trader state");
+  try {
+    if (showLoading) setLoadingProgress(18, "Fetching account, market data, and AI signals");
+    const appState = await fetchJson("/api/state");
+    if (showLoading) setLoadingProgress(72, "Rendering dashboard");
+    state = appState;
+    renderState(appState);
+    if (isSettingsPageActive()) {
+      if (showLoading) setLoadingProgress(86, "Loading saved settings");
+      await refreshSettingsPanels();
+    }
+    if (showLoading) finishLoading();
+    maybeRunAutoTrade();
+  } catch (error) {
+    if (showLoading) failLoading(error.message);
+    throw error;
+  }
 }
 
 async function refreshSettingsPanels() {
@@ -866,6 +891,58 @@ function setText(selector, value) {
   const element = document.querySelector(selector);
   if (element) element.textContent = value;
 }
+
+function startLoading(label, detail) {
+  loadingPercent = 4;
+  document.body.classList.remove("loading-error");
+  document.body.classList.add("loading-active");
+  setLoadingText(label, detail);
+  paintLoading();
+  clearInterval(loadingTimer);
+  loadingTimer = setInterval(() => {
+    if (loadingPercent >= 92) return;
+    const increment = loadingPercent < 55 ? 7 : loadingPercent < 78 ? 4 : 2;
+    loadingPercent = Math.min(92, loadingPercent + increment);
+    paintLoading();
+  }, 350);
+}
+
+function setLoadingProgress(percentValue, detail) {
+  loadingPercent = Math.max(loadingPercent, Math.min(99, Math.round(percentValue)));
+  setLoadingText(null, detail);
+  paintLoading();
+}
+
+function finishLoading() {
+  clearInterval(loadingTimer);
+  loadingTimer = null;
+  loadingPercent = 100;
+  setLoadingText("Dashboard ready", "Latest data loaded");
+  paintLoading();
+  setTimeout(() => {
+    document.body.classList.remove("loading-active", "loading-error");
+  }, 250);
+}
+
+function failLoading(message) {
+  clearInterval(loadingTimer);
+  loadingTimer = null;
+  document.body.classList.add("loading-error");
+  setLoadingText("Could not load dashboard", message || "Refresh failed");
+  paintLoading();
+}
+
+function setLoadingText(label, detail) {
+  if (label) setText("#loadingLabel", label);
+  if (detail) setText("#loadingDetail", detail);
+}
+
+function paintLoading() {
+  setText("#loadingPercent", `${loadingPercent}%`);
+  const fill = document.querySelector("#loadingFill");
+  if (fill) fill.style.width = `${loadingPercent}%`;
+}
+
 function money(value) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value || 0);
 }
@@ -885,8 +962,8 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-function safeRefresh() {
-  refresh().catch((error) => {
+function safeRefresh(options = {}) {
+  refresh(options).catch((error) => {
     setAiTraderStatus("Connection", error.message);
   });
 }
