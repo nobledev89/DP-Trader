@@ -178,5 +178,37 @@ test("does not auto trade when an active order already exists", async () => {
     now: new Date("2026-05-20T14:00:00-04:00")
   });
   assert.equal(result.status, "no_trade");
-  assert.equal(result.reason, "active_order_or_position");
+  assert.equal(result.reason, "active_order");
+});
+
+test("allows another trade when an existing position is below the configured max", async () => {
+  const originalFetch = globalThis.fetch;
+  let orderPosted = false;
+  globalThis.fetch = mockAlpacaFetch({
+    onOrderPost: () => {
+      orderPosted = true;
+    }
+  });
+
+  try {
+    const store = createStore();
+    store.positions.push({
+      symbol: "QQQ",
+      qty: 10,
+      side: "long",
+      marketValue: 2000
+    });
+    const result = await runAutoTradeCycle({
+      config: {
+        ...config,
+        risk: { ...config.risk, maxOpenPositions: 5 }
+      },
+      store,
+      now: new Date("2026-05-20T14:00:00-04:00")
+    });
+    assert.equal(result.status, "submitted");
+    assert.equal(orderPosted, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

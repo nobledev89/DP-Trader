@@ -158,6 +158,7 @@ function renderState(data) {
   setText("#dayPnl", money(data.account.dayPnl));
   document.querySelector("#dayPnl").className = data.account.dayPnl >= 0 ? "up" : "down";
   setText("#openPositions", String(data.positions.length));
+  setText("#openPositionLimit", `Max ${data.risk.maxOpenPositions} configured`);
   setText("#accountSource", `${data.account.source} account`);
   setText("#lastTick", time(new Date()));
   const autoPaused = isAutoPaused() || data.risk.killSwitch;

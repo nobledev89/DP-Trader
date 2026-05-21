@@ -14,9 +14,9 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
   if (store.killSwitch) {
     return { status: "paused", reason: "kill_switch_enabled" };
   }
-  if (hasActiveOrderOrPosition(store)) {
-    appendEvent(store, "info", "AI auto trader skipped because an order or position is already active");
-    return { status: "no_trade", reason: "active_order_or_position" };
+  if (hasActiveOrder(store)) {
+    appendEvent(store, "info", "AI auto trader skipped because an order is already active");
+    return { status: "no_trade", reason: "active_order" };
   }
 
   const market = await loadMarketSnapshot(config, store, now);
@@ -142,8 +142,7 @@ function hasRecentOrder(store, symbol, now) {
   return store.orders.some((order) => order.symbol === symbol && Date.parse(order.createdAt) >= cutoff);
 }
 
-function hasActiveOrderOrPosition(store) {
-  if (store.positions.length > 0) return true;
+function hasActiveOrder(store) {
   const activeStatuses = new Set(["new", "accepted", "pending_new", "partially_filled", "held", "calculated"]);
   return store.orders.some((order) => activeStatuses.has(order.status));
 }
