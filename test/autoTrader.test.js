@@ -53,6 +53,36 @@ test("submits the top approved signal to Alpaca paper trading", async () => {
   }
 });
 
+test("submits a visible approved signal when LLM advisory rejects it", async () => {
+  const originalFetch = globalThis.fetch;
+  let orderPosted = false;
+  globalThis.fetch = mockAlpacaFetch({
+    rejectLlm: true,
+    onOrderPost: () => {
+      orderPosted = true;
+    }
+  });
+
+  try {
+    const store = createStore();
+    const result = await runAutoTradeCycle({
+      config: {
+        ...config,
+        openai: { key: "test-openai-key", model: "gpt-test" },
+        risk: { ...config.risk, minAutoConfidence: 0.62 }
+      },
+      store,
+      now: new Date("2026-05-20T14:00:00-04:00")
+    });
+    assert.equal(result.status, "submitted");
+    assert.equal(orderPosted, true);
+    assert.match(result.ai.modelVersion, /llm_advisory$/);
+    assert.equal(store.orders.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("does not auto trade while kill switch is enabled", async () => {
   const store = createStore();
   store.killSwitch = true;
@@ -65,9 +95,24 @@ test("does not auto trade while kill switch is enabled", async () => {
   assert.equal(store.orders.length, 0);
 });
 
-function mockAlpacaFetch({ onOrderPost } = {}) {
+function mockAlpacaFetch({ onOrderPost, rejectLlm = false } = {}) {
   return async (url, options = {}) => {
     const target = url.toString();
+    if (target === "https://api.openai.com/v1/chat/completions" && options.method === "POST" && rejectLlm) {
+      return Response.json({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              approve: false,
+              confidence: 0.2,
+              rationale: "advisory rejection",
+              reasonCodes: ["advisory_reject"]
+            })
+          }
+        }],
+        usage: { prompt_tokens: 10, completion_tokens: 10 }
+      });
+    }
     if (target.startsWith("https://data.alpaca.markets/v2/stocks/trades/latest")) {
       return Response.json({
         trades: Object.fromEntries(SYMBOL_LIST.map((symbol, index) => [symbol, {

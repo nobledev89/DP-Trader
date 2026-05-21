@@ -41,7 +41,7 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
   const preScored = scoredSignals
     .filter(({ heuristic, risk, signal }) => (
       risk.decision === "approved" &&
-      heuristic.probabilityOfSuccess >= 0.5 &&
+      heuristic.probabilityOfSuccess >= minAutoConfidence &&
       !hasRecentOrder(store, signal.symbol, now)
     ))
     .sort((a, b) => b.heuristic.probabilityOfSuccess - a.heuristic.probabilityOfSuccess)
@@ -67,11 +67,24 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
       chosen = { ...candidate, ai };
       break;
     }
+    if (candidate.heuristic.decision === "candidate") {
+      chosen = {
+        ...candidate,
+        ai: {
+          ...candidate.heuristic,
+          modelVersion: `${candidate.heuristic.modelVersion}+llm_advisory`,
+          rationale: `Heuristic score met the ${Math.round(minAutoConfidence * 100)}% execution threshold; LLM advisory did not approve: ${ai.rationale || ai.reasonCodes?.join(", ") || "low_confidence"}`,
+          advisory: ai
+        }
+      };
+      appendEvent(store, "info", `AI using ${candidate.signal.symbol} because the visible score is ${Math.round(candidate.heuristic.probabilityOfSuccess * 100)}% and risk approved; LLM advisory was ${Math.round(ai.probabilityOfSuccess * 100)}%.`);
+      break;
+    }
     appendEvent(store, "info", `AI rejected ${candidate.signal.symbol}: ${ai.rationale || ai.reasonCodes?.join(", ") || "low_confidence"} (${Math.round(ai.probabilityOfSuccess * 100)}% < ${Math.round(minAutoConfidence * 100)}%)`);
   }
 
   if (!chosen) {
-    return { status: "no_trade", reason: "ai_rejected_all_candidates", minAutoConfidence };
+    return { status: "no_trade", reason: "ai_rejected_all_candidates", minAutoConfidence, rejected: rejectedSummary };
   }
 
   const alpacaOrder = await submitAlpacaAutoOrder(config, chosen.signal, chosen.risk, now);
