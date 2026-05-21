@@ -4,6 +4,7 @@ import { join } from "node:path";
 const required = [
   "vercel.json",
   "api/state.js",
+  "api/history.js",
   "api/settings/integrations.js",
   "api/settings/risk.js",
   "api/kill-switch.js",

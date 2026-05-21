@@ -3,6 +3,7 @@
   "outputDirectory": "apps/web",
   "rewrites": [
     { "source": "/api/state", "destination": "/api/state" },
+    { "source": "/api/history", "destination": "/api/history" },
     { "source": "/api/settings/integrations", "destination": "/api/settings/integrations" },
     { "source": "/api/settings/risk", "destination": "/api/settings/risk" },
     { "source": "/api/kill-switch", "destination": "/api/kill-switch" },
