@@ -75,6 +75,7 @@ export function buildSignals(marketSnapshot, marketContext = { spyTrend: "up" })
       features: {
         distanceFromVwapPct: bar.vwap ? Number((((bar.price - bar.vwap) / bar.vwap) * 100).toFixed(2)) : 0,
         relativeVolume: bar.relativeVolume ?? 1,
+        indicatorAvgVolume: bar.indicatorAvgVolume ?? null,
         spyTrend: marketContext.spyTrend,
         atrPct: bar.atrPct ?? 0,
         rsi14: bar.rsi14 ?? null,
