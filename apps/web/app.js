@@ -398,25 +398,35 @@ function renderNews(events) {
 
 /* ───── Signals / orders / strategy / model (preserved) ───── */
 function renderSignals(signals) {
+  const rows = signals.length ? signals.map((signal) => {
+    const reasonCodes = signal.risk?.reasonCodes || [];
+    const riskReason = reasonCodes.filter((reason) => reason !== "risk_approved").map(title).join(", ");
+    return `
+      <div class="row">
+        <strong>${signal.symbol}</strong>
+        <span>${title(signal.strategy)}</span>
+        <span>${Math.round(signal.confidence * 100)}%</span>
+        <span>${money(signal.entryPrice)}</span>
+        <span class="risk-cell">
+          <span class="${signal.risk.decision === "approved" ? "up" : "down"}">${title(signal.risk.decision)}</span>
+          ${riskReason ? `<small>${escapeHtml(riskReason)}</small>` : ""}
+        </span>
+        <span>AI managed</span>
+      </div>
+    `;
+  }).join("") : `
+    <div class="row">
+      <strong>No signals</strong>
+      <span>Waiting for indicators</span>
+      <span>-</span>
+      <span>-</span>
+      <span class="risk-cell"><span class="down">Unavailable</span><small>RSI / ATR bars are not ready</small></span>
+      <span>Skipped</span>
+    </div>
+  `;
   document.querySelector("#signalsTable").innerHTML = `
     <div class="row header"><span>Symbol</span><span>Strategy</span><span>AI Score</span><span>Entry</span><span>Risk</span><span>Action</span></div>
-    ${signals.map((signal) => {
-      const reasonCodes = signal.risk?.reasonCodes || [];
-      const riskReason = reasonCodes.filter((reason) => reason !== "risk_approved").map(title).join(", ");
-      return `
-        <div class="row">
-          <strong>${signal.symbol}</strong>
-          <span>${title(signal.strategy)}</span>
-          <span>${Math.round(signal.confidence * 100)}%</span>
-          <span>${money(signal.entryPrice)}</span>
-          <span class="risk-cell">
-            <span class="${signal.risk.decision === "approved" ? "up" : "down"}">${title(signal.risk.decision)}</span>
-            ${riskReason ? `<small>${escapeHtml(riskReason)}</small>` : ""}
-          </span>
-          <span>AI managed</span>
-        </div>
-      `;
-    }).join("")}
+    ${rows}
   `;
 }
 

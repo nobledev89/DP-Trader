@@ -137,32 +137,9 @@ export async function fetchAlpacaLatestQuotes(config, symbols) {
 
 export async function fetchAlpacaBars(config, symbols, { timeframe = "1Min", limit = 60 } = {}) {
   if (!hasAlpacaCredentials(config)) return null;
-  const url = new URL(`${alpacaDataRoot(config)}/stocks/bars`);
-  url.searchParams.set("symbols", symbols.join(","));
-  url.searchParams.set("timeframe", timeframe);
-  url.searchParams.set("limit", String(limit));
-  url.searchParams.set("feed", alpacaMarketDataFeed(config));
-  url.searchParams.set("adjustment", "raw");
-  const response = await fetch(url, {
-    headers: alpacaHeaders(config)
-  });
-  if (!response.ok) {
-    throw new Error(`Alpaca bars request failed: ${response.status}`);
-  }
-  const body = await response.json();
-  const result = {};
-  for (const [symbol, bars] of Object.entries(body.bars || {})) {
-    result[symbol] = (bars || []).map((bar) => ({
-      t: bar.t,
-      open: Number(bar.o),
-      high: Number(bar.h),
-      low: Number(bar.l),
-      close: Number(bar.c),
-      volume: Number(bar.v) || 0,
-      vwap: Number(bar.vw) || Number(bar.c)
-    }));
-  }
-  return result;
+  const result = await fetchBarsPage(config, symbols, { timeframe, limit, feed: alpacaBarsDataFeed(config) });
+  if (Object.values(result).some((bars) => bars.length)) return result;
+  return fetchRecentHistoricalBars(config, symbols, { timeframe, limit });
 }
 
 export async function submitAlpacaBracketOrder(config, signal, risk) {
@@ -375,6 +352,66 @@ function alpacaMarketDataFeed(config, now = new Date()) {
     return config.alpaca.extendedDataFeed || "overnight";
   }
   return config.alpaca.dataFeed || "iex";
+}
+
+function alpacaBarsDataFeed(config) {
+  const feed = config.alpaca.dataFeed || "iex";
+  return ["iex", "sip"].includes(feed) ? feed : "iex";
+}
+
+async function fetchBarsPage(config, symbols, { timeframe, limit, feed, start, end, sort }) {
+  const url = new URL(`${alpacaDataRoot(config)}/stocks/bars`);
+  url.searchParams.set("symbols", symbols.join(","));
+  url.searchParams.set("timeframe", timeframe);
+  url.searchParams.set("limit", String(limit));
+  url.searchParams.set("feed", feed);
+  url.searchParams.set("adjustment", "raw");
+  if (start) url.searchParams.set("start", start.toISOString());
+  if (end) url.searchParams.set("end", end.toISOString());
+  if (sort) url.searchParams.set("sort", sort);
+  const response = await fetch(url, {
+    headers: alpacaHeaders(config)
+  });
+  if (!response.ok) {
+    throw new Error(`Alpaca bars request failed: ${response.status}`);
+  }
+  const body = await response.json();
+  return normalizeBarsBySymbol(body.bars || {});
+}
+
+async function fetchRecentHistoricalBars(config, symbols, { timeframe, limit }) {
+  const end = new Date();
+  const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const feed = alpacaBarsDataFeed(config);
+  const entries = await Promise.all(symbols.map(async (symbol) => {
+    const barsBySymbol = await fetchBarsPage(config, [symbol], {
+      timeframe,
+      limit,
+      feed,
+      start,
+      end,
+      sort: "desc"
+    }).catch(() => ({}));
+    const bars = barsBySymbol[symbol] || [];
+    return [symbol, bars.slice().reverse()];
+  }));
+  return Object.fromEntries(entries);
+}
+
+function normalizeBarsBySymbol(rawBars) {
+  const result = {};
+  for (const [symbol, bars] of Object.entries(rawBars || {})) {
+    result[symbol] = (bars || []).map((bar) => ({
+      t: bar.t,
+      open: Number(bar.o),
+      high: Number(bar.h),
+      low: Number(bar.l),
+      close: Number(bar.c),
+      volume: Number(bar.v) || 0,
+      vwap: Number(bar.vw) || Number(bar.c)
+    }));
+  }
+  return result;
 }
 
 export function assertPaperTradingEndpoint(config) {

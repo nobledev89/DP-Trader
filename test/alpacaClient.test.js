@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { alpacaApiRoot, assertPaperTradingEndpoint, cancelAllAlpacaOrders, closeAllAlpacaPositions, fetchAlpacaAccount, fetchAlpacaLatestMarket, marketableLimitPrice, submitAlpacaAutoOrder } from "../apps/api/services/alpacaClient.js";
+import { alpacaApiRoot, assertPaperTradingEndpoint, cancelAllAlpacaOrders, closeAllAlpacaPositions, fetchAlpacaAccount, fetchAlpacaBars, fetchAlpacaLatestMarket, marketableLimitPrice, submitAlpacaAutoOrder } from "../apps/api/services/alpacaClient.js";
 
 test("normalizes Alpaca paper base URL with or without v2 suffix", () => {
   assert.equal(alpacaApiRoot({ alpaca: { baseUrl: "https://paper-api.alpaca.markets" } }), "https://paper-api.alpaca.markets/v2");
@@ -46,6 +46,43 @@ test("fetches Alpaca free latest market data from IEX feed", async () => {
     assert.equal(market.length, 2);
     assert.equal(market[0].source, "alpaca_iex");
     assert.equal(market[0].price, 190.12);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("falls back to recent historical bars when latest bars are empty", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    requests.push(url.toString());
+    assert.equal(options.headers["APCA-API-KEY-ID"], "key");
+    if (url.searchParams.get("sort") === "desc") {
+      const symbol = url.searchParams.get("symbols");
+      return Response.json({
+        bars: {
+          [symbol]: [
+            { t: "2026-05-20T19:59:00Z", o: 101, h: 102, l: 100, c: 101.5, v: 2000, vw: 101.2 },
+            { t: "2026-05-20T19:58:00Z", o: 100, h: 101, l: 99, c: 100.5, v: 1000, vw: 100.2 }
+          ]
+        }
+      });
+    }
+    return Response.json({ bars: {}, next_page_token: null });
+  };
+  try {
+    const bars = await fetchAlpacaBars({
+      alpaca: {
+        key: "key",
+        secret: "secret",
+        dataFeed: "iex"
+      }
+    }, ["AAPL", "MSFT"], { limit: 2 });
+    assert.equal(requests.length, 3);
+    assert.equal(bars.AAPL.length, 2);
+    assert.equal(bars.AAPL[0].t, "2026-05-20T19:58:00Z");
+    assert.equal(bars.AAPL[1].t, "2026-05-20T19:59:00Z");
+    assert.equal(bars.MSFT[0].close, 100.5);
   } finally {
     globalThis.fetch = originalFetch;
   }
