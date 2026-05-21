@@ -12,7 +12,6 @@ let lastAutoTradeAt = 0;
 let refreshInFlight = null;
 let loadingTimer = null;
 let loadingPercent = 0;
-const autoTradeIntervalMs = 60 * 1000;
 const previousPrices = new Map();
 let aiLogs = readAiLogs();
 const activePageKey = "dpTraderActivePage";
@@ -501,7 +500,11 @@ function renderRiskRules(risk) {
     ["Max open positions", risk.maxOpenPositions],
     ["Max trades per hour", risk.maxTradesPerHour],
     ["Minimum reward/risk", `${risk.minRewardRisk}R`],
-    ["Max spread", `${risk.maxSpreadPct}%`]
+    ["Max spread", `${risk.maxSpreadPct}%`],
+    ["AI cycle", `${risk.autoTradeIntervalSeconds || 30}s`],
+    ["Scalping exits", risk.scalpingEnabled ? "Enabled" : "Disabled"],
+    ["Hold window", `${risk.minHoldMinutes || 0}-${risk.maxHoldMinutes || 120}m`],
+    ["Quick profit / stop", `${risk.quickProfitPct || 0.35}% / ${risk.quickStopPct || 0.25}%`]
   ].map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join("");
 }
 
@@ -717,6 +720,8 @@ async function maybeRunAutoTrade() {
     logAiActivity("waiting", "AI cycle already running.", {});
     return;
   }
+  const intervalSeconds = Number(state?.risk?.autoTradeIntervalSeconds || 30);
+  const autoTradeIntervalMs = Math.max(10, intervalSeconds) * 1000;
   const waitMs = autoTradeIntervalMs - (Date.now() - lastAutoTradeAt);
   if (waitMs > 0) {
     setAiTraderStatus("Cooldown", `Next AI cycle in ${Math.ceil(waitMs / 1000)}s`);
@@ -783,6 +788,9 @@ function describeAutoTradeResult(result) {
   if (result.status === "submitted") {
     const order = result.order || {};
     return `Submitted ${order.symbol || "paper"} order to Alpaca; waiting for fill. AI ${Math.round((result.ai?.probabilityOfSuccess || 0) * 100)}%, ${order.qty || result.risk?.shares || 0} shares at limit ${money(order.limitPrice)}.`;
+  }
+  if (result.status === "exit_submitted") {
+    return `Scalping exit submitted for ${result.symbol}: ${title(result.reason)}. Held ${result.ageMinutes || 0}m, P/L ${((result.pnlPct || 0) * 100).toFixed(2)}%.`;
   }
   if (result.status === "no_trade") {
     const rejected = Array.isArray(result.rejected) && result.rejected.length ? ` ${result.rejected.join("; ")}.` : "";

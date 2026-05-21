@@ -273,6 +273,47 @@ export async function cancelAllAlpacaOrders(config) {
   return body;
 }
 
+export async function cancelAlpacaOrdersForSymbol(config, symbol, orders = []) {
+  assertPaperTradingEndpoint(config);
+  if (!hasAlpacaCredentials(config)) throw new Error("Alpaca paper credentials are missing");
+  const activeStatuses = new Set(["new", "accepted", "pending_new", "partially_filled", "held", "calculated"]);
+  const activeOrders = (orders || []).filter((order) => (
+    order.symbol === symbol &&
+    order.id &&
+    activeStatuses.has(order.status)
+  ));
+  const results = [];
+  for (const order of activeOrders) {
+    const response = await fetch(`${alpacaApiRoot(config)}/orders/${order.id}`, {
+      method: "DELETE",
+      headers: alpacaHeaders(config)
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Alpaca cancel ${symbol} order request failed: ${response.status}`);
+    }
+    results.push({ id: order.id, status: response.status });
+  }
+  return results;
+}
+
+export async function closeAlpacaPosition(config, position, now = new Date()) {
+  assertPaperTradingEndpoint(config);
+  if (!hasAlpacaCredentials(config)) throw new Error("Alpaca paper credentials are missing");
+  if (config.risk?.allowExtendedHours && !isRegularMarketHours(now) && isExtendedHoursEligibleTime(now)) {
+    return submitAlpacaExtendedPositionClose(config, position);
+  }
+  const response = await fetch(`${alpacaApiRoot(config)}/positions/${encodeURIComponent(position.symbol)}`, {
+    method: "DELETE",
+    headers: alpacaHeaders(config)
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok && response.status !== 404) {
+    const message = body.message || body.error || `Alpaca close ${position.symbol} position request failed: ${response.status}`;
+    throw new Error(message);
+  }
+  return body;
+}
+
 export async function closeAllAlpacaPositions(config) {
   assertPaperTradingEndpoint(config);
   if (!hasAlpacaCredentials(config)) throw new Error("Alpaca paper credentials are missing");
@@ -283,6 +324,39 @@ export async function closeAllAlpacaPositions(config) {
   const body = await response.json().catch(() => []);
   if (!response.ok) {
     throw new Error(`Alpaca close positions request failed: ${response.status}`);
+  }
+  return body;
+}
+
+async function submitAlpacaExtendedPositionClose(config, position) {
+  const qty = Math.abs(Number(position.qty || 0));
+  if (!qty) throw new Error(`Cannot close ${position.symbol}: position quantity is zero`);
+  const side = position.side === "short" || Number(position.qty) < 0 ? "buy" : "sell";
+  const currentPrice = Number(position.currentPrice || position.avgEntryPrice || 0);
+  if (!currentPrice) throw new Error(`Cannot close ${position.symbol}: current price is missing`);
+  const limitPrice = side === "sell"
+    ? Number((currentPrice * 0.9975).toFixed(2))
+    : Number((currentPrice * 1.0025).toFixed(2));
+  const response = await fetch(`${alpacaApiRoot(config)}/orders`, {
+    method: "POST",
+    headers: {
+      ...alpacaHeaders(config),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      symbol: position.symbol,
+      qty: String(qty),
+      side,
+      type: "limit",
+      time_in_force: "day",
+      limit_price: String(limitPrice),
+      extended_hours: true
+    })
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = body.message || body.error || `Alpaca extended close ${position.symbol} order failed: ${response.status}`;
+    throw new Error(message);
   }
   return body;
 }

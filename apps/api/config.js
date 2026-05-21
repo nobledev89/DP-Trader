@@ -29,17 +29,23 @@ export function readConfig(env = process.env) {
     },
     risk: {
       maxDailyLossPct: number("MAX_DAILY_LOSS_PCT", 0.75),
-      maxRiskPerTradePct: number("MAX_RISK_PER_TRADE_PCT", 0.1),
-      maxOpenPositions: number("MAX_OPEN_POSITIONS", 1),
-      maxTradesPerHour: number("MAX_TRADES_PER_HOUR", 3),
-      maxTradesPerDay: number("MAX_TRADES_PER_DAY", 8),
-      minRewardRisk: number("MIN_REWARD_RISK", 1.5),
-      maxSpreadPct: number("MAX_SPREAD_PCT", 0.08),
+      maxRiskPerTradePct: number("MAX_RISK_PER_TRADE_PCT", 0.2),
+      maxOpenPositions: number("MAX_OPEN_POSITIONS", 5),
+      maxTradesPerHour: number("MAX_TRADES_PER_HOUR", 10),
+      maxTradesPerDay: number("MAX_TRADES_PER_DAY", 80),
+      minRewardRisk: number("MIN_REWARD_RISK", 1.1),
+      maxSpreadPct: number("MAX_SPREAD_PCT", 0.1),
       minAvgVolume: number("MIN_AVG_VOLUME", 2000000),
       maxExecutionErrors: number("MAX_EXECUTION_ERRORS", 3),
       maxPositionValuePct: number("MAX_POSITION_VALUE_PCT", 20),
-      minAutoConfidence: number("MIN_AUTO_CONFIDENCE", 0.62),
-      allowExtendedHours: env.ALLOW_EXTENDED_HOURS === "true"
+      minAutoConfidence: number("MIN_AUTO_CONFIDENCE", 0.6),
+      allowExtendedHours: env.ALLOW_EXTENDED_HOURS !== "false",
+      scalpingEnabled: env.SCALPING_ENABLED !== "false",
+      autoTradeIntervalSeconds: number("AUTO_TRADE_INTERVAL_SECONDS", 30),
+      minHoldMinutes: number("MIN_HOLD_MINUTES", 5),
+      maxHoldMinutes: number("MAX_HOLD_MINUTES", 120),
+      quickProfitPct: number("QUICK_PROFIT_PCT", 0.35),
+      quickStopPct: number("QUICK_STOP_PCT", 0.25)
     }
   };
 }

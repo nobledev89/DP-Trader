@@ -168,7 +168,7 @@ export async function persistAutoTradeCycle(result) {
     [
       result.status || "unknown",
       result.reason || null,
-      result.order?.symbol || null,
+      result.order?.symbol || result.symbol || null,
       result.order?.id || null,
       numberOrNull(result.ai?.probabilityOfSuccess),
       numberOrNull(result.ai?.expectedR),

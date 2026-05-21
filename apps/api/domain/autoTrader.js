@@ -2,7 +2,7 @@ import { scoreSignal, scoreSignalWithLlm } from "./aiScorer.js";
 import { evaluateRisk } from "./riskManager.js";
 import { loadMarketSnapshot } from "./marketData.js";
 import { buildSignals } from "./strategyEngine.js";
-import { marketableLimitPrice, submitAlpacaAutoOrder } from "../services/alpacaClient.js";
+import { cancelAlpacaOrdersForSymbol, closeAlpacaPosition, marketableLimitPrice, submitAlpacaAutoOrder } from "../services/alpacaClient.js";
 import { appendEvent } from "../store.js";
 
 const DEFAULT_MIN_AUTO_CONFIDENCE = 0.62;
@@ -14,7 +14,9 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
   if (store.killSwitch) {
     return { status: "paused", reason: "kill_switch_enabled" };
   }
-  if (hasActiveOrder(store)) {
+  const exit = await manageScalpingExits({ config, store, now });
+  if (exit) return exit;
+  if (hasActiveEntryOrder(store)) {
     appendEvent(store, "info", "AI auto trader skipped because an order is already active");
     return { status: "no_trade", reason: "active_order" };
   }
@@ -42,6 +44,7 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
     .filter(({ heuristic, risk, signal }) => (
       risk.decision === "approved" &&
       heuristic.probabilityOfSuccess >= minAutoConfidence &&
+      !hasOpenPosition(store, signal.symbol) &&
       !hasRecentOrder(store, signal.symbol, now)
     ))
     .sort((a, b) => b.heuristic.probabilityOfSuccess - a.heuristic.probabilityOfSuccess)
@@ -103,6 +106,60 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
   };
 }
 
+async function manageScalpingExits({ config, store, now }) {
+  if (!config.risk?.scalpingEnabled || !store.positions.length) return null;
+  const minHoldMs = Math.max(0, Number(config.risk.minHoldMinutes || 0)) * 60 * 1000;
+  const maxHoldMs = Math.max(1, Number(config.risk.maxHoldMinutes || 120)) * 60 * 1000;
+  const quickProfit = Number(config.risk.quickProfitPct || 0.35) / 100;
+  const quickStop = Number(config.risk.quickStopPct || 0.25) / 100;
+
+  for (const position of store.positions) {
+    const openedAt = inferPositionOpenedAt(position, store.orders);
+    const ageMs = openedAt ? now.getTime() - Date.parse(openedAt) : 0;
+    const pnlPct = Number(position.unrealizedPnlPct || 0);
+    const exitReason = scalpingExitReason({ ageMs, minHoldMs, maxHoldMs, pnlPct, quickProfit, quickStop });
+    if (!exitReason) continue;
+
+    await cancelAlpacaOrdersForSymbol(config, position.symbol, store.orders);
+    const closeResult = await closeAlpacaPosition(config, position, now);
+    appendEvent(store, "info", `Scalping exit requested for ${position.symbol}: ${exitReason} (${formatPnlPct(pnlPct)}, ${Math.max(0, Math.round(ageMs / 60000))}m held)`);
+    return {
+      status: "exit_submitted",
+      reason: exitReason,
+      symbol: position.symbol,
+      position,
+      closeResult,
+      ageMinutes: Math.max(0, Math.round(ageMs / 60000)),
+      pnlPct
+    };
+  }
+  return null;
+}
+
+function scalpingExitReason({ ageMs, minHoldMs, maxHoldMs, pnlPct, quickProfit, quickStop }) {
+  if (pnlPct <= -quickStop) return "quick_stop_hit";
+  if (ageMs >= maxHoldMs) return "max_hold_reached";
+  if (ageMs >= minHoldMs && pnlPct >= quickProfit) return "quick_profit_hit";
+  return null;
+}
+
+function inferPositionOpenedAt(position, orders = []) {
+  const entrySide = position.side === "short" || Number(position.qty) < 0 ? "sell" : "buy";
+  const entries = orders
+    .filter((order) => (
+      order.symbol === position.symbol &&
+      order.side === entrySide &&
+      Number(order.filledQty || 0) > 0 &&
+      ["filled", "partially_filled"].includes(order.status)
+    ))
+    .sort((a, b) => Date.parse(b.filledAt || b.createdAt) - Date.parse(a.filledAt || a.createdAt));
+  return entries[0]?.filledAt || entries[0]?.createdAt || null;
+}
+
+function formatPnlPct(value) {
+  return `${(Number(value || 0) * 100).toFixed(2)}%`;
+}
+
 function summarizeRejectedSignals(scoredSignals) {
   return scoredSignals.slice(0, 5).map(({ signal, heuristic, risk }) => {
     const reasons = risk.reasonCodes || risk.reasons || [];
@@ -142,9 +199,14 @@ function hasRecentOrder(store, symbol, now) {
   return store.orders.some((order) => order.symbol === symbol && Date.parse(order.createdAt) >= cutoff);
 }
 
-function hasActiveOrder(store) {
+function hasOpenPosition(store, symbol) {
+  return store.positions.some((position) => position.symbol === symbol && Math.abs(Number(position.qty || 0)) > 0);
+}
+
+function hasActiveEntryOrder(store) {
   const activeStatuses = new Set(["new", "accepted", "pending_new", "partially_filled", "held", "calculated"]);
-  return store.orders.some((order) => activeStatuses.has(order.status));
+  const positionedSymbols = new Set(store.positions.map((position) => position.symbol));
+  return store.orders.some((order) => activeStatuses.has(order.status) && !positionedSymbols.has(order.symbol));
 }
 
 function normalizeAutoOrder(alpacaOrder, candidate) {

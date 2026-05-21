@@ -95,7 +95,7 @@ test("does not auto trade while kill switch is enabled", async () => {
   assert.equal(store.orders.length, 0);
 });
 
-function mockAlpacaFetch({ onOrderPost, rejectLlm = false } = {}) {
+function mockAlpacaFetch({ onOrderPost, onOrderCancel, onPositionClose, rejectLlm = false } = {}) {
   return async (url, options = {}) => {
     const target = url.toString();
     if (target === "https://api.openai.com/v1/chat/completions" && options.method === "POST" && rejectLlm) {
@@ -158,6 +158,14 @@ function mockAlpacaFetch({ onOrderPost, rejectLlm = false } = {}) {
         created_at: "2026-05-20T18:00:00Z"
       });
     }
+    if (target === "https://paper-api.alpaca.markets/v2/orders/exit-order" && options.method === "DELETE") {
+      onOrderCancel?.();
+      return new Response(null, { status: 204 });
+    }
+    if (target === "https://paper-api.alpaca.markets/v2/positions/QQQ" && options.method === "DELETE") {
+      onPositionClose?.();
+      return Response.json({ symbol: "QQQ", status: "closed" });
+    }
     throw new Error(`Unexpected fetch in test: ${target}`);
   };
 }
@@ -208,6 +216,71 @@ test("allows another trade when an existing position is below the configured max
     });
     assert.equal(result.status, "submitted");
     assert.equal(orderPosted, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("submits a scalping exit when quick profit is reached", async () => {
+  const originalFetch = globalThis.fetch;
+  let canceledOrder = false;
+  let closedPosition = false;
+  globalThis.fetch = mockAlpacaFetch({
+    onOrderCancel: () => {
+      canceledOrder = true;
+    },
+    onPositionClose: () => {
+      closedPosition = true;
+    }
+  });
+
+  try {
+    const store = createStore();
+    store.positions.push({
+      symbol: "QQQ",
+      qty: 10,
+      side: "long",
+      marketValue: 2050,
+      currentPrice: 205,
+      avgEntryPrice: 200,
+      unrealizedPnl: 50,
+      unrealizedPnlPct: 0.004
+    });
+    store.orders.push({
+      id: "entry",
+      symbol: "QQQ",
+      side: "buy",
+      status: "filled",
+      filledQty: 10,
+      createdAt: new Date("2026-05-20T13:50:00-04:00").toISOString(),
+      filledAt: new Date("2026-05-20T13:50:00-04:00").toISOString()
+    }, {
+      id: "exit-order",
+      symbol: "QQQ",
+      side: "sell",
+      status: "new",
+      createdAt: new Date("2026-05-20T13:50:01-04:00").toISOString()
+    });
+    const result = await runAutoTradeCycle({
+      config: {
+        ...config,
+        risk: {
+          ...config.risk,
+          scalpingEnabled: true,
+          minHoldMinutes: 5,
+          maxHoldMinutes: 120,
+          quickProfitPct: 0.35,
+          quickStopPct: 0.25
+        }
+      },
+      store,
+      now: new Date("2026-05-20T14:00:00-04:00")
+    });
+    assert.equal(result.status, "exit_submitted");
+    assert.equal(result.reason, "quick_profit_hit");
+    assert.equal(result.symbol, "QQQ");
+    assert.equal(canceledOrder, true);
+    assert.equal(closedPosition, true);
   } finally {
     globalThis.fetch = originalFetch;
   }
