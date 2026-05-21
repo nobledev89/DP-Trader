@@ -59,6 +59,7 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
   }
 
   let chosen = null;
+  const aiRejected = [];
   for (const candidate of preScored) {
     const ai = await scoreSignalWithLlm({
       config,
@@ -70,11 +71,12 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
       chosen = { ...candidate, ai };
       break;
     }
+    aiRejected.push(summarizeAiRejection(candidate.signal, ai, minAutoConfidence));
     appendEvent(store, "info", `AI rejected ${candidate.signal.symbol}: ${ai.rationale || ai.reasonCodes?.join(", ") || "low_confidence"} (${Math.round(ai.probabilityOfSuccess * 100)}% < ${Math.round(minAutoConfidence * 100)}%)`);
   }
 
   if (!chosen) {
-    return { status: "no_trade", reason: "ai_rejected_all_candidates", minAutoConfidence, rejected: rejectedSummary };
+    return { status: "no_trade", reason: "ai_rejected_all_candidates", minAutoConfidence, rejected: aiRejected, riskRejected: rejectedSummary };
   }
 
   const alpacaOrder = await submitAlpacaAutoOrder(config, chosen.signal, chosen.risk, now);
@@ -153,6 +155,13 @@ function summarizeRejectedSignals(scoredSignals) {
     const reason = reasons.length ? reasons.join(", ") : heuristic.reasonCodes?.join(", ") || "below_threshold";
     return `${signal.symbol} ${Math.round(heuristic.probabilityOfSuccess * 100)}% ${reason}`;
   });
+}
+
+function summarizeAiRejection(signal, ai, minAutoConfidence) {
+  const reason = ai.rationale || ai.reasonCodes?.join(", ") || "low_confidence";
+  const score = Math.round((ai.probabilityOfSuccess || 0) * 100);
+  const threshold = Math.round(minAutoConfidence * 100);
+  return `${signal.symbol} LLM ${score}% ${reason} (< ${threshold}%)`;
 }
 
 export function deriveMarketContext(market) {

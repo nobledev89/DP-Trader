@@ -76,6 +76,8 @@ test("does not submit when configured LLM rejects the heuristic candidate", asyn
     });
     assert.equal(result.status, "no_trade");
     assert.equal(result.reason, "ai_rejected_all_candidates");
+    assert.match(result.rejected[0], /LLM \d+%/);
+    assert.match(result.rejected[0], /advisory rejection/);
     assert.equal(orderPosted, false);
     assert.equal(store.orders.length, 0);
   } finally {
