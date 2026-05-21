@@ -508,7 +508,7 @@ function renderOrders(orders) {
 }
 
 function renderLlmUsage() {
-  const usage = readLlmUsage();
+  const usage = state?.llmUsage || readLlmUsage();
   const totalCost = usage.reduce((sum, event) => sum + Number(event.costUsd || 0), 0);
   const totalTokens = usage.reduce((sum, event) => sum + Number(event.inputTokens || 0) + Number(event.outputTokens || 0), 0);
   const last = usage[0];

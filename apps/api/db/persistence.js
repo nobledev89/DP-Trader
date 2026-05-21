@@ -158,6 +158,25 @@ export async function persistRiskDecision(symbol, risk) {
   );
 }
 
+export async function persistLlmUsage(usage) {
+  if (!usage?.provider || !usage?.model) return;
+  await safeQuery(
+    `insert into llm_usage (
+      provider, model, input_tokens, output_tokens, cost_usd, reason, raw
+    )
+    values ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      usage.provider,
+      usage.model,
+      Number.isFinite(Number(usage.inputTokens)) ? Number(usage.inputTokens) : 0,
+      Number.isFinite(Number(usage.outputTokens)) ? Number(usage.outputTokens) : 0,
+      numberOrNull(usage.costUsd) ?? 0,
+      usage.reason || null,
+      usage.raw || usage
+    ]
+  );
+}
+
 export async function persistAutoTradeCycle(result) {
   if (!result) return;
   await safeQuery(
@@ -178,6 +197,31 @@ export async function persistAutoTradeCycle(result) {
   );
   if (result.order) await persistOrder(result.order);
   if (result.risk) await persistRiskDecision(result.order?.symbol, result.risk);
+}
+
+export async function loadRecentLlmUsage(limit = 100) {
+  try {
+    const result = await query(
+      `select provider, model, input_tokens, output_tokens, cost_usd, reason, raw, created_at
+       from llm_usage
+       order by created_at desc
+       limit $1`,
+      [limit]
+    );
+    return (result?.rows || []).map((row) => ({
+      provider: row.provider,
+      model: row.model,
+      inputTokens: Number(row.input_tokens) || 0,
+      outputTokens: Number(row.output_tokens) || 0,
+      costUsd: Number(row.cost_usd) || 0,
+      reason: row.reason || "",
+      raw: row.raw || {},
+      createdAt: row.created_at.toISOString()
+    }));
+  } catch (error) {
+    console.warn(`Postgres LLM usage read skipped: ${error.message}`);
+    return [];
+  }
 }
 
 export async function ensureIntegrationKeyTable() {

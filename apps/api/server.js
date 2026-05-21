@@ -23,6 +23,7 @@ import {
   persistOrders,
   persistPositions,
   persistStrategySignals,
+  loadRecentLlmUsage,
   ensureAppSettingsTable,
   ensureIntegrationKeyTable,
   loadAppSetting,
@@ -132,6 +133,7 @@ async function handleApi(req, res, url, cfg, state) {
       return { ...signal, confidence: ai.probabilityOfSuccess, ai, risk };
     });
     persistStrategySignals(scoredSignals).catch(() => {});
+    const llmUsage = await loadRecentLlmUsage(100);
     sendJson(res, 200, {
       account: state.account,
       positions: state.positions,
@@ -145,6 +147,7 @@ async function handleApi(req, res, url, cfg, state) {
         tradingMode: requestConfig.tradingMode,
         alpacaConfigured: Boolean(requestConfig.alpaca?.key && requestConfig.alpaca?.secret)
       },
+      llmUsage,
       events: state.events
     });
     return;

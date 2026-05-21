@@ -4,7 +4,7 @@ import { evaluateRisk } from "../apps/api/domain/riskManager.js";
 import { buildSignals } from "../apps/api/domain/strategyEngine.js";
 import { deriveMarketContext } from "../apps/api/domain/autoTrader.js";
 import { loadMarketSnapshot, storeMarketSnapshot } from "../apps/api/domain/marketData.js";
-import { persistStrategySignals } from "../apps/api/db/persistence.js";
+import { loadRecentLlmUsage, persistStrategySignals } from "../apps/api/db/persistence.js";
 import { hasAlpacaCredentials } from "../apps/api/services/alpacaClient.js";
 import { configForStore, ensureBootstrap, getRuntime, refreshAlpacaReadOnlyData, refreshPersistedEvents, refreshStoredIntegrationKeys, refreshStoredRiskSettings, send, summarizeState } from "./_runtimeState.js";
 
@@ -36,6 +36,7 @@ export default async function handler(request, response) {
       return { ...signal, confidence: ai.probabilityOfSuccess, ai, risk };
     });
     persistStrategySignals(signals).catch(() => {});
+    const llmUsage = await loadRecentLlmUsage(100);
 
     send(response, 200, {
       account: store.account,
@@ -50,6 +51,7 @@ export default async function handler(request, response) {
         tradingMode: requestConfig.tradingMode,
         alpacaConfigured: hasAlpacaCredentials(requestConfig)
       },
+      llmUsage,
       events: store.events
     });
   } catch (error) {

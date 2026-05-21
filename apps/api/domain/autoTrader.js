@@ -2,6 +2,7 @@ import { scoreSignal, scoreSignalWithLlm } from "./aiScorer.js";
 import { evaluateRisk } from "./riskManager.js";
 import { loadMarketSnapshot } from "./marketData.js";
 import { buildSignals } from "./strategyEngine.js";
+import { persistLlmUsage } from "../db/persistence.js";
 import { cancelAlpacaOrdersForSymbol, closeAlpacaPosition, marketableLimitPrice, submitAlpacaAutoOrder } from "../services/alpacaClient.js";
 import { appendEvent } from "../store.js";
 
@@ -67,6 +68,7 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
       marketContext,
       risk: candidate.risk
     });
+    persistLlmDecision(candidate.signal, ai);
     if (ai.decision === "candidate" && ai.probabilityOfSuccess >= minAutoConfidence) {
       chosen = { ...candidate, ai };
       break;
@@ -162,6 +164,35 @@ function summarizeAiRejection(signal, ai, minAutoConfidence) {
   const score = Math.round((ai.probabilityOfSuccess || 0) * 100);
   const threshold = Math.round(minAutoConfidence * 100);
   return `${signal.symbol} LLM ${score}% ${reason} (< ${threshold}%)`;
+}
+
+function persistLlmDecision(signal, ai) {
+  if (!ai?.llm) return;
+  persistLlmUsage({
+    provider: ai.llm.provider,
+    model: ai.llm.model,
+    inputTokens: ai.llm.inputTokens,
+    outputTokens: ai.llm.outputTokens,
+    costUsd: estimateLlmCost(ai.llm),
+    reason: `${signal.symbol} ${ai.decision}: ${ai.rationale || ai.reasonCodes?.join(", ") || "reviewed"}`,
+    raw: {
+      symbol: signal.symbol,
+      direction: signal.direction,
+      probabilityOfSuccess: ai.probabilityOfSuccess,
+      decision: ai.decision,
+      rationale: ai.rationale,
+      reasonCodes: ai.reasonCodes,
+      llm: ai.llm
+    }
+  }).catch(() => {});
+}
+
+function estimateLlmCost(llm) {
+  const inputTokens = Number(llm.inputTokens || 0);
+  const outputTokens = Number(llm.outputTokens || 0);
+  if (llm.provider === "openai") return Number(((inputTokens * 0.15 + outputTokens * 0.6) / 1_000_000).toFixed(6));
+  if (llm.provider === "anthropic") return Number(((inputTokens * 3 + outputTokens * 15) / 1_000_000).toFixed(6));
+  return 0;
 }
 
 export function deriveMarketContext(market) {
