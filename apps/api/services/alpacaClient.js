@@ -272,7 +272,7 @@ export async function submitAlpacaCryptoLimitOrder(config, signal, risk) {
     qty: String(risk.shares),
     side: "buy",
     type: "limit",
-    time_in_force: "gtc",
+    time_in_force: config.alpaca.cryptoTimeInForce || "day",
     limit_price: String(marketableLimitPrice(signal, signal.quote))
   };
 

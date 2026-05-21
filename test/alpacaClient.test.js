@@ -202,7 +202,7 @@ test("submits crypto entries as fractional spot limit orders", async () => {
     assert.equal(body.symbol, "BTC/USD");
     assert.equal(body.qty, "0.00123456");
     assert.equal(body.side, "buy");
-    assert.equal(body.time_in_force, "gtc");
+    assert.equal(body.time_in_force, "day");
     assert.equal(body.order_class, undefined);
     return Response.json({ id: "crypto-order", status: "accepted", limit_price: body.limit_price });
   };

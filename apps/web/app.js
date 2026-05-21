@@ -730,7 +730,7 @@ async function handleSettingsGridClick(event) {
 async function fetchJson(url) {
   const response = await fetch(url);
   if (!response.ok) throw new Error(await responseErrorMessage(response));
-  return response.json();
+  return readJsonResponse(response);
 }
 
 async function postJson(url, body) {
@@ -740,7 +740,7 @@ async function postJson(url, body) {
     body: JSON.stringify(body)
   });
   if (!response.ok) throw new Error(await responseErrorMessage(response));
-  return response.json();
+  return readJsonResponse(response);
 }
 
 async function deleteJson(url, body) {
@@ -750,7 +750,17 @@ async function deleteJson(url, body) {
     body: JSON.stringify(body || {})
   });
   if (!response.ok) throw new Error(await responseErrorMessage(response));
-  return response.json();
+  return readJsonResponse(response);
+}
+
+async function readJsonResponse(response) {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`Expected JSON response but received ${text.slice(0, 80)}`);
+  }
 }
 
 async function responseErrorMessage(response) {
