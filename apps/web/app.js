@@ -400,16 +400,23 @@ function renderNews(events) {
 function renderSignals(signals) {
   document.querySelector("#signalsTable").innerHTML = `
     <div class="row header"><span>Symbol</span><span>Strategy</span><span>AI Score</span><span>Entry</span><span>Risk</span><span>Action</span></div>
-    ${signals.map((signal) => `
-      <div class="row">
-        <strong>${signal.symbol}</strong>
-        <span>${title(signal.strategy)}</span>
-        <span>${Math.round(signal.confidence * 100)}%</span>
-        <span>${money(signal.entryPrice)}</span>
-        <span class="${signal.risk.decision === "approved" ? "up" : "down"}">${title(signal.risk.decision)}</span>
-        <span>AI managed</span>
-      </div>
-    `).join("")}
+    ${signals.map((signal) => {
+      const reasonCodes = signal.risk?.reasonCodes || [];
+      const riskReason = reasonCodes.filter((reason) => reason !== "risk_approved").map(title).join(", ");
+      return `
+        <div class="row">
+          <strong>${signal.symbol}</strong>
+          <span>${title(signal.strategy)}</span>
+          <span>${Math.round(signal.confidence * 100)}%</span>
+          <span>${money(signal.entryPrice)}</span>
+          <span class="risk-cell">
+            <span class="${signal.risk.decision === "approved" ? "up" : "down"}">${title(signal.risk.decision)}</span>
+            ${riskReason ? `<small>${escapeHtml(riskReason)}</small>` : ""}
+          </span>
+          <span>AI managed</span>
+        </div>
+      `;
+    }).join("")}
   `;
 }
 
