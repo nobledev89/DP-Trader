@@ -45,6 +45,8 @@ export function readConfig(env = process.env) {
       minAutoConfidence: number("MIN_AUTO_CONFIDENCE", 0.6),
       allowExtendedHours: env.ALLOW_EXTENDED_HOURS !== "false",
       scalpingEnabled: env.SCALPING_ENABLED !== "false",
+      protectiveExitsEnabled: env.PROTECTIVE_EXITS_ENABLED !== "false",
+      trendExitMinHoldMinutes: number("TREND_EXIT_MIN_HOLD_MINUTES", 3),
       autoTradeIntervalSeconds: number("AUTO_TRADE_INTERVAL_SECONDS", 30),
       minHoldMinutes: number("MIN_HOLD_MINUTES", 5),
       maxHoldMinutes: number("MAX_HOLD_MINUTES", 120),

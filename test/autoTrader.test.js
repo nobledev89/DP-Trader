@@ -97,7 +97,7 @@ test("does not auto trade while kill switch is enabled", async () => {
   assert.equal(store.orders.length, 0);
 });
 
-function mockAlpacaFetch({ onOrderPost, onOrderCancel, onPositionClose, rejectLlm = false } = {}) {
+function mockAlpacaFetch({ onOrderPost, onOrderCancel, onPositionClose, rejectLlm = false, bearishSymbols = [] } = {}) {
   return async (url, options = {}) => {
     const target = url.toString();
     if (target === "https://api.openai.com/v1/chat/completions" && options.method === "POST" && rejectLlm) {
@@ -138,7 +138,7 @@ function mockAlpacaFetch({ onOrderPost, onOrderCancel, onPositionClose, rejectLl
     }
     if (target.startsWith("https://data.alpaca.markets/v2/stocks/bars")) {
       const symbols = url.searchParams.get("symbols").split(",");
-      const bars = Array.from({ length: 60 }, (_, i) => ({
+      const defaultBars = Array.from({ length: 60 }, (_, i) => ({
         t: new Date(Date.UTC(2026, 4, 20, 17, i)).toISOString(),
         o: 200 + Math.sin(i / 4) * 0.5,
         h: 200.4 + Math.sin(i / 4) * 0.5,
@@ -147,8 +147,20 @@ function mockAlpacaFetch({ onOrderPost, onOrderCancel, onPositionClose, rejectLl
         v: 3500000 + i * 1000,
         vw: 200 + Math.sin(i / 4) * 0.5
       }));
+      const bearishBars = Array.from({ length: 60 }, (_, i) => {
+        const close = 205 - i * 0.08;
+        return {
+          t: new Date(Date.UTC(2026, 4, 20, 17, i)).toISOString(),
+          o: close + 0.04,
+          h: close + 0.08,
+          l: close - 0.08,
+          c: close,
+          v: 3500000 + i * 1000,
+          vw: close + 0.1
+        };
+      });
       return Response.json({
-        bars: Object.fromEntries(symbols.map((symbol) => [symbol, bars]))
+        bars: Object.fromEntries(symbols.map((symbol) => [symbol, bearishSymbols.includes(symbol) ? bearishBars : defaultBars]))
       });
     }
     if (target === "https://paper-api.alpaca.markets/v2/orders" && options.method === "POST") {
@@ -283,6 +295,72 @@ test("submits a scalping exit when quick profit is reached", async () => {
     });
     assert.equal(result.status, "exit_submitted");
     assert.equal(result.reason, "quick_profit_hit");
+    assert.equal(result.symbol, "QQQ");
+    assert.equal(canceledOrder, true);
+    assert.equal(closedPosition, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("submits a protective exit when an open long loses trend support", async () => {
+  const originalFetch = globalThis.fetch;
+  let canceledOrder = false;
+  let closedPosition = false;
+  globalThis.fetch = mockAlpacaFetch({
+    bearishSymbols: ["QQQ"],
+    onOrderCancel: () => {
+      canceledOrder = true;
+    },
+    onPositionClose: () => {
+      closedPosition = true;
+    }
+  });
+
+  try {
+    const store = createStore();
+    store.positions.push({
+      symbol: "QQQ",
+      qty: 10,
+      side: "long",
+      marketValue: 2000,
+      currentPrice: 200,
+      avgEntryPrice: 200,
+      unrealizedPnl: 0,
+      unrealizedPnlPct: 0
+    });
+    store.orders.push({
+      id: "entry",
+      symbol: "QQQ",
+      side: "buy",
+      status: "filled",
+      filledQty: 10,
+      createdAt: new Date("2026-05-20T13:50:00-04:00").toISOString(),
+      filledAt: new Date("2026-05-20T13:50:00-04:00").toISOString()
+    }, {
+      id: "exit-order",
+      symbol: "QQQ",
+      side: "sell",
+      status: "new",
+      createdAt: new Date("2026-05-20T13:50:01-04:00").toISOString()
+    });
+
+    const result = await runAutoTradeCycle({
+      config: {
+        ...config,
+        risk: {
+          ...config.risk,
+          scalpingEnabled: false,
+          protectiveExitsEnabled: true,
+          trendExitMinHoldMinutes: 3
+        }
+      },
+      store,
+      now: new Date("2026-05-20T14:00:00-04:00")
+    });
+
+    assert.equal(result.status, "exit_submitted");
+    assert.equal(result.reason, "trend_flip_bearish");
     assert.equal(result.symbol, "QQQ");
     assert.equal(canceledOrder, true);
     assert.equal(closedPosition, true);

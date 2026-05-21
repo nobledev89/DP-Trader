@@ -14,6 +14,8 @@ const RISK_SETTING_FIELDS = {
   minAutoConfidence: { label: "AI confidence threshold", min: 0.1, max: 0.99, step: 0.01 },
   allowExtendedHours: { label: "Allow 24/5 extended hours", type: "boolean" },
   scalpingEnabled: { label: "Scalping exits enabled", type: "boolean" },
+  protectiveExitsEnabled: { label: "Protective trend exits enabled", type: "boolean" },
+  trendExitMinHoldMinutes: { label: "Trend exit min hold minutes", min: 0, max: 240, step: 1, integer: true },
   autoTradeIntervalSeconds: { label: "AI cycle seconds", min: 10, max: 300, step: 5, integer: true },
   minHoldMinutes: { label: "Min hold minutes", min: 0, max: 240, step: 1, integer: true },
   maxHoldMinutes: { label: "Max hold minutes", min: 1, max: 1440, step: 1, integer: true },

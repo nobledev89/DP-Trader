@@ -17,12 +17,16 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
   }
   const exit = await manageScalpingExits({ config, store, now });
   if (exit) return exit;
+
+  const market = await loadMarketSnapshot(config, store, now);
+  const protectiveExit = await manageProtectiveExits({ config, store, market, now });
+  if (protectiveExit) return protectiveExit;
+
   if (hasActiveEntryOrder(store)) {
     appendEvent(store, "info", "AI auto trader skipped because an order is already active");
     return { status: "no_trade", reason: "active_order" };
   }
 
-  const market = await loadMarketSnapshot(config, store, now);
   const marketContext = deriveMarketContext(market);
   const signals = buildSignals(market, marketContext);
 
@@ -95,6 +99,64 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
     ai: chosen.ai,
     risk: chosen.risk
   };
+}
+
+async function manageProtectiveExits({ config, store, market, now }) {
+  if (!config.risk?.protectiveExitsEnabled || !store.positions.length) return null;
+  const minHoldMs = Math.max(0, Number(config.risk.trendExitMinHoldMinutes || 0)) * 60 * 1000;
+  const maxSpreadPct = Number(config.risk.maxSpreadPct || 0.1);
+
+  for (const position of store.positions) {
+    const bar = market.find((candidate) => candidate.symbol === position.symbol);
+    if (!bar) continue;
+
+    const openedAt = inferPositionOpenedAt(position, store.orders);
+    const ageMs = openedAt ? now.getTime() - Date.parse(openedAt) : 0;
+    if (ageMs < minHoldMs) continue;
+
+    const exitReason = protectiveExitReason({
+      position,
+      bar,
+      maxSpreadPct
+    });
+    if (!exitReason) continue;
+
+    await cancelAlpacaOrdersForSymbol(config, position.symbol, store.orders);
+    const closeResult = await closeAlpacaPosition(config, position, now);
+    const pnlPct = Number(position.unrealizedPnlPct || 0);
+    appendEvent(store, "info", `Protective exit requested for ${position.symbol}: ${exitReason} (${formatPnlPct(pnlPct)}, ${Math.max(0, Math.round(ageMs / 60000))}m held)`);
+    return {
+      status: "exit_submitted",
+      reason: exitReason,
+      symbol: position.symbol,
+      position,
+      closeResult,
+      ageMinutes: Math.max(0, Math.round(ageMs / 60000)),
+      pnlPct
+    };
+  }
+  return null;
+}
+
+function protectiveExitReason({ position, bar, maxSpreadPct }) {
+  const side = position.side === "short" || Number(position.qty) < 0 ? "short" : "long";
+  const pnlPct = Number(position.unrealizedPnlPct || 0);
+  const emaSlope = Number(bar.emaSlope || 0);
+  const aboveVwap = Boolean(bar.aboveVwap);
+  const aboveEma20 = bar.aboveEma20;
+  const aboveEma50 = bar.aboveEma50;
+  const spreadTooWide = Number(bar.spreadPct || 0) > maxSpreadPct * 1.5;
+  const liquidityCollapsed = Number(bar.relativeVolume || 1) < 0.25;
+
+  if (side === "long" && !aboveVwap && emaSlope < 0 && (aboveEma20 === false || aboveEma50 === false)) {
+    return "trend_flip_bearish";
+  }
+  if (side === "short" && aboveVwap && emaSlope > 0 && (aboveEma20 === true || aboveEma50 === true)) {
+    return "trend_flip_bullish";
+  }
+  if (spreadTooWide && pnlPct <= 0) return "spread_widened";
+  if (liquidityCollapsed && pnlPct <= 0) return "liquidity_collapsed";
+  return null;
 }
 
 async function manageScalpingExits({ config, store, now }) {
