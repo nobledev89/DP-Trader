@@ -1,4 +1,4 @@
-const SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "AMD", "META", "AMZN", "GOOGL", "IBIT", "ETHE", "GLD", "SLV", "USO", "TLT", "UUP"];
+const SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "AMD", "META", "AMZN", "GOOGL", "IBIT", "ETHE", "BTC/USD", "ETH/USD", "SOL/USD", "GLD", "SLV", "USO", "TLT", "UUP"];
 
 export function generateMarketSnapshot(now = new Date(), symbols = SYMBOLS) {
   const tick = now.getTime() / 1000;
@@ -22,6 +22,7 @@ export function generateMarketSnapshot(now = new Date(), symbols = SYMBOLS) {
       relativeVolume: Number((1.05 + ((Math.floor(tick / 3) + index) % 8) / 10).toFixed(2)),
       spreadPct,
       avgVolume: 2500000 + index * 700000,
+      assetClass: symbol.includes("/") ? "crypto" : "stock",
       rsi14: Number((54 + Math.sin(tick / 31 + index) * 12).toFixed(2)),
       ema20: Number((price - emaSlope).toFixed(4)),
       ema50: Number((price - emaSlope * 2).toFixed(4)),
@@ -41,6 +42,7 @@ export function buildSignals(marketSnapshot, marketContext = { spyTrend: "up" })
   return marketSnapshot.flatMap((bar, index) => {
     const direction = pickDirection(bar);
     if (!direction) return [];
+    if (bar.assetClass === "crypto" && direction === "short") return [];
 
     const referencePrice = (direction === "long" ? bar.ask : bar.bid) || bar.price;
     const entryPrice = Number(referencePrice.toFixed(2));
@@ -55,6 +57,7 @@ export function buildSignals(marketSnapshot, marketContext = { spyTrend: "up" })
     return [{
       id: `${bar.symbol}-${bar.updatedAt}`,
       symbol: bar.symbol,
+      assetClass: bar.assetClass || "stock",
       strategy: pickStrategy(bar, index),
       direction,
       confidence: 0,
@@ -76,12 +79,14 @@ export function buildSignals(marketSnapshot, marketContext = { spyTrend: "up" })
         distanceFromVwapPct: bar.vwap ? Number((((bar.price - bar.vwap) / bar.vwap) * 100).toFixed(2)) : 0,
         relativeVolume: bar.relativeVolume ?? 1,
         indicatorAvgVolume: bar.indicatorAvgVolume ?? null,
+        indicatorAvgDollarVolume: bar.indicatorAvgDollarVolume ?? null,
         spyTrend: marketContext.spyTrend,
         atrPct: bar.atrPct ?? 0,
         rsi14: bar.rsi14 ?? null,
         emaSlope: bar.emaSlope ?? 0,
         aboveVwap: bar.aboveVwap ?? true,
         aboveEma20: bar.aboveEma20 ?? null,
+        assetClass: bar.assetClass || "stock",
         source: bar.source
       }
     }];

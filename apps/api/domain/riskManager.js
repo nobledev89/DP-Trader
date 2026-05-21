@@ -1,21 +1,22 @@
-export function calculatePositionSize({ equity, entryPrice, stopPrice, maxRiskPerTradePct, confidence }) {
+export function calculatePositionSize({ equity, entryPrice, stopPrice, maxRiskPerTradePct, confidence, allowFractional = false }) {
   const riskMultiplier = confidenceRiskMultiplier(confidence);
   const riskAmount = equity * ((maxRiskPerTradePct * riskMultiplier) / 100);
   const riskPerShare = Math.abs(entryPrice - stopPrice);
   if (!Number.isFinite(riskPerShare) || riskPerShare <= 0) {
     return { shares: 0, riskAmount, riskPerShare: 0, riskMultiplier };
   }
+  const rawShares = riskAmount / riskPerShare;
   return {
-    shares: Math.max(0, Math.floor(riskAmount / riskPerShare)),
+    shares: allowFractional ? roundCryptoQty(rawShares) : Math.max(0, Math.floor(rawShares)),
     riskAmount: Number(riskAmount.toFixed(2)),
     riskPerShare: Number(riskPerShare.toFixed(2)),
     riskMultiplier
   };
 }
 
-export function capPositionByBuyingPower({ shares, entryPrice, buyingPower, maxPositionValuePct }) {
+export function capPositionByBuyingPower({ shares, entryPrice, buyingPower, maxPositionValuePct, allowFractional = false }) {
   const maxPositionValue = Math.max(0, buyingPower * (maxPositionValuePct / 100));
-  const cappedShares = Math.floor(maxPositionValue / entryPrice);
+  const cappedShares = allowFractional ? roundCryptoQty(maxPositionValue / entryPrice) : Math.floor(maxPositionValue / entryPrice);
   return {
     shares: Math.max(0, Math.min(shares, cappedShares)),
     maxPositionValue: Number(maxPositionValue.toFixed(2))
@@ -29,6 +30,8 @@ export function evaluateRisk({ signal, account, state, config, now = new Date() 
   const afterCutoff = isAfterNoNewTradesCutoff(now);
   const afterForceFlat = isAfterForceFlatTime(now);
   const allowExtendedHoursNow = Boolean(config.allowExtendedHours) && isExtendedHoursEligibleTime(now);
+  const isCrypto = signal.assetClass === "crypto";
+  const minLiquidity = isCrypto ? Number(config.minCryptoDollarVolume ?? 5000) : config.minAvgVolume;
 
   if (state.killSwitch) reasons.push("kill_switch_enabled");
   if (dailyLossPct >= config.maxDailyLossPct) reasons.push("daily_loss_limit_reached");
@@ -37,7 +40,8 @@ export function evaluateRisk({ signal, account, state, config, now = new Date() 
   if (state.tradesToday >= config.maxTradesPerDay) reasons.push("max_trades_per_day_reached");
   if (state.executionErrors >= config.maxExecutionErrors) reasons.push("execution_error_circuit_breaker");
   if (signal.spreadPct > config.maxSpreadPct) reasons.push("spread_too_wide");
-  if ((signal.avgVolume || 0) < config.minAvgVolume) reasons.push("average_volume_too_low");
+  if ((signal.avgVolume || 0) < minLiquidity) reasons.push(isCrypto ? "crypto_dollar_volume_too_low" : "average_volume_too_low");
+  if (isCrypto && signal.direction === "short") reasons.push("crypto_short_not_supported");
   if (rewardRisk < config.minRewardRisk) reasons.push("reward_risk_too_low");
   if (state.dataStale) reasons.push("market_data_stale");
   if (!allowExtendedHoursNow && afterCutoff) reasons.push("after_new_trade_cutoff");
@@ -48,16 +52,18 @@ export function evaluateRisk({ signal, account, state, config, now = new Date() 
     entryPrice: signal.entryPrice,
     stopPrice: signal.stopPrice,
     maxRiskPerTradePct: config.maxRiskPerTradePct,
-    confidence: signal.confidence
+    confidence: signal.confidence,
+    allowFractional: isCrypto
   });
   const sizing = capPositionByBuyingPower({
     shares: riskSizing.shares,
     entryPrice: signal.entryPrice,
     buyingPower: account.buyingPower || account.equity,
-    maxPositionValuePct: config.maxPositionValuePct
+    maxPositionValuePct: config.maxPositionValuePct,
+    allowFractional: isCrypto
   });
 
-  if (sizing.shares < 1) reasons.push("position_size_below_one_share");
+  if (isCrypto ? sizing.shares <= 0 : sizing.shares < 1) reasons.push("position_size_below_one_share");
 
   return {
     decision: reasons.length ? "rejected" : "approved",
@@ -76,6 +82,10 @@ export function confidenceRiskMultiplier(confidence) {
   if (confidence >= 0.7) return 0.75;
   if (confidence >= 0.62) return 0.5;
   return 0.25;
+}
+
+function roundCryptoQty(value) {
+  return Math.max(0, Number(value.toFixed(8)));
 }
 
 export function isAfterNoNewTradesCutoff(now) {

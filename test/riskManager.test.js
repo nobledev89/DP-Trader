@@ -125,3 +125,25 @@ test("scales risk down for lower-confidence auto-trade signals", () => {
   assert.equal(decision.riskMultiplier, 0.5);
   assert.equal(decision.shares, 50);
 });
+
+test("allows fractional crypto position sizing with crypto liquidity gate", () => {
+  const decision = evaluateRisk({
+    signal: {
+      symbol: "BTC/USD",
+      assetClass: "crypto",
+      direction: "long",
+      entryPrice: 80000,
+      stopPrice: 79000,
+      targetPrice: 82100,
+      spreadPct: 0.02,
+      avgVolume: 25000,
+      confidence: 0.82
+    },
+    account: baseAccount,
+    state: baseState,
+    config: { ...baseConfig, minCryptoDollarVolume: 5000 },
+    now: new Date("2026-05-20T14:00:00-04:00")
+  });
+  assert.equal(decision.decision, "approved");
+  assert.equal(decision.shares, 0.1);
+});

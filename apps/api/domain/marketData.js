@@ -1,23 +1,29 @@
-import { fetchAlpacaBars, fetchAlpacaLatestMarket, fetchAlpacaLatestQuotes } from "../services/alpacaClient.js";
+import { fetchAlpacaBars, fetchAlpacaCryptoBars, fetchAlpacaLatestCryptoQuotes, fetchAlpacaLatestMarket, fetchAlpacaLatestQuotes } from "../services/alpacaClient.js";
 import { generateMarketSnapshot } from "./strategyEngine.js";
 import { computeIndicators } from "./indicators.js";
 import { appendEvent } from "../store.js";
 
-export const DEFAULT_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "AMD", "META", "AMZN", "GOOGL", "IBIT", "ETHE", "GLD", "SLV", "USO", "TLT", "UUP"];
+export const DEFAULT_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "AMD", "META", "AMZN", "GOOGL", "IBIT", "ETHE", "BTC/USD", "ETH/USD", "SOL/USD", "GLD", "SLV", "USO", "TLT", "UUP"];
 
 export async function loadMarketSnapshot(config, store, now = new Date()) {
   const symbols = config.symbols?.length ? config.symbols : DEFAULT_SYMBOLS;
   const fallback = generateMarketSnapshot(now, symbols);
+  const stockSymbols = symbols.filter((symbol) => !isCryptoSymbol(symbol));
+  const cryptoSymbols = symbols.filter(isCryptoSymbol);
   try {
-    const [trades, quotes, bars] = await Promise.all([
-      fetchAlpacaLatestMarket(config, symbols),
-      fetchAlpacaLatestQuotes(config, symbols).catch(() => null),
-      fetchAlpacaBars(config, symbols, { timeframe: "1Min", limit: 60 }).catch(() => null)
+    const [stockTrades, stockQuotes, stockBars, cryptoQuotes, cryptoBars] = await Promise.all([
+      fetchAlpacaLatestMarket(config, stockSymbols),
+      fetchAlpacaLatestQuotes(config, stockSymbols).catch(() => null),
+      fetchAlpacaBars(config, stockSymbols, { timeframe: "1Min", limit: 60 }).catch(() => null),
+      fetchAlpacaLatestCryptoQuotes(config, cryptoSymbols).catch(() => null),
+      fetchAlpacaCryptoBars(config, cryptoSymbols, { timeframe: "1Min", limit: 60 }).catch(() => null)
     ]);
+    const trades = [...(stockTrades || []), ...(cryptoQuotes || [])];
+    const bars = { ...(stockBars || {}), ...(cryptoBars || {}) };
     if (!trades?.length) return markSource(fallback, "simulated");
 
     const fallbackBySymbol = new Map(fallback.map((bar) => [bar.symbol, bar]));
-    const quoteBySymbol = new Map((quotes || []).map((quote) => [quote.symbol, quote]));
+    const quoteBySymbol = new Map([...(stockQuotes || []), ...(cryptoQuotes || [])].map((quote) => [quote.symbol, quote]));
 
     return symbols.map((symbol) => {
       const trade = trades.find((bar) => bar.symbol === symbol);
@@ -42,8 +48,9 @@ export async function loadMarketSnapshot(config, store, now = new Date()) {
         vwap: indicators?.vwap || trade.vwap || price,
         changePct: indicators?.changePct ?? Number((((price - previousPrice) / previousPrice) * 100).toFixed(3)),
         relativeVolume: indicators?.relativeVolume || trade.relativeVolume || 1,
-        avgVolume: trade.avgVolume || indicators?.avgVolume || 0,
+        avgVolume: trade.assetClass === "crypto" ? Math.max(indicators?.avgDollarVolume || 0, trade.avgVolume || 0) : trade.avgVolume || indicators?.avgVolume || 0,
         indicatorAvgVolume: indicators?.avgVolume ?? null,
+        indicatorAvgDollarVolume: indicators?.avgDollarVolume ?? null,
         rsi14: indicators?.rsi14 ?? null,
         ema20: indicators?.ema20 ?? null,
         ema50: indicators?.ema50 ?? null,
@@ -54,7 +61,8 @@ export async function loadMarketSnapshot(config, store, now = new Date()) {
         aboveEma20: indicators?.aboveEma20 ?? null,
         aboveEma50: indicators?.aboveEma50 ?? null,
         updatedAt: trade.updatedAt,
-        source: indicators ? "alpaca_live" : "alpaca_iex"
+        assetClass: trade.assetClass || "stock",
+        source: trade.assetClass === "crypto" ? "alpaca_crypto" : indicators ? "alpaca_live" : "alpaca_iex"
       };
     });
   } catch (error) {
@@ -69,4 +77,8 @@ export function storeMarketSnapshot(store, market) {
 
 function markSource(market, source) {
   return market.map((bar) => ({ ...bar, source }));
+}
+
+export function isCryptoSymbol(symbol) {
+  return /^[A-Z0-9]+\/[A-Z0-9]+$/.test(symbol);
 }

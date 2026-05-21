@@ -24,6 +24,9 @@ export function computeIndicators(bars) {
   const changePct = first.close > 0 ? Number((((last.close - first.close) / first.close) * 100).toFixed(3)) : 0;
   const atrPct = last.close > 0 ? Number(((atr14 / last.close) * 100).toFixed(3)) : 0;
   const avgVolume = volumes.length ? Math.round(volumes.reduce((sum, v) => sum + v, 0) / volumes.length) : 0;
+  const avgDollarVolume = volumes.length
+    ? Math.round(volumes.reduce((sum, volume, index) => sum + volume * closes[index], 0) / volumes.length)
+    : 0;
   const recentVolume = volumes.slice(-5).reduce((sum, v) => sum + v, 0) / 5;
   const relativeVolume = avgVolume > 0 ? Number((recentVolume / avgVolume).toFixed(2)) : 1;
 
@@ -38,6 +41,7 @@ export function computeIndicators(bars) {
     emaSlope,
     changePct,
     avgVolume,
+    avgDollarVolume,
     relativeVolume,
     aboveVwap: last.close >= vwapValue,
     aboveEma20: last.close >= ema20,

@@ -116,16 +116,18 @@ function mockAlpacaFetch({ onOrderPost, onOrderCancel, onPositionClose, rejectLl
       });
     }
     if (target.startsWith("https://data.alpaca.markets/v2/stocks/trades/latest")) {
+      const symbols = url.searchParams.get("symbols").split(",");
       return Response.json({
-        trades: Object.fromEntries(SYMBOL_LIST.map((symbol, index) => [symbol, {
+        trades: Object.fromEntries(symbols.map((symbol, index) => [symbol, {
           p: 200 + index * 0.5,
           t: "2026-05-20T18:00:00Z"
         }]))
       });
     }
     if (target.startsWith("https://data.alpaca.markets/v2/stocks/quotes/latest")) {
+      const symbols = url.searchParams.get("symbols").split(",");
       return Response.json({
-        quotes: Object.fromEntries(SYMBOL_LIST.map((symbol, index) => [symbol, {
+        quotes: Object.fromEntries(symbols.map((symbol, index) => [symbol, {
           bp: 199.98 + index * 0.5,
           ap: 200.02 + index * 0.5,
           bs: 5,
@@ -135,6 +137,7 @@ function mockAlpacaFetch({ onOrderPost, onOrderCancel, onPositionClose, rejectLl
       });
     }
     if (target.startsWith("https://data.alpaca.markets/v2/stocks/bars")) {
+      const symbols = url.searchParams.get("symbols").split(",");
       const bars = Array.from({ length: 60 }, (_, i) => ({
         t: new Date(Date.UTC(2026, 4, 20, 17, i)).toISOString(),
         o: 200 + Math.sin(i / 4) * 0.5,
@@ -145,7 +148,7 @@ function mockAlpacaFetch({ onOrderPost, onOrderCancel, onPositionClose, rejectLl
         vw: 200 + Math.sin(i / 4) * 0.5
       }));
       return Response.json({
-        bars: Object.fromEntries(SYMBOL_LIST.map((symbol) => [symbol, bars]))
+        bars: Object.fromEntries(symbols.map((symbol) => [symbol, bars]))
       });
     }
     if (target === "https://paper-api.alpaca.markets/v2/orders" && options.method === "POST") {

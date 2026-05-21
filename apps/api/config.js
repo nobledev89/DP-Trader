@@ -38,6 +38,7 @@ export function readConfig(env = process.env) {
       minRewardRisk: number("MIN_REWARD_RISK", 1.1),
       maxSpreadPct: number("MAX_SPREAD_PCT", 0.1),
       minAvgVolume: number("MIN_AVG_VOLUME", 2000000),
+      minCryptoDollarVolume: number("MIN_CRYPTO_DOLLAR_VOLUME", 5000),
       maxExecutionErrors: number("MAX_EXECUTION_ERRORS", 3),
       maxPositionValuePct: number("MAX_POSITION_VALUE_PCT", 20),
       minAutoConfidence: number("MIN_AUTO_CONFIDENCE", 0.6),
@@ -59,12 +60,12 @@ export function assertLiveTradingAllowed(config) {
 function parseSymbols(raw) {
   const defaults = [
     "SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "AMD", "META", "AMZN", "GOOGL",
-    "IBIT", "ETHE", "GLD", "SLV", "USO", "TLT", "UUP"
+    "IBIT", "ETHE", "BTC/USD", "ETH/USD", "SOL/USD", "GLD", "SLV", "USO", "TLT", "UUP"
   ];
   if (!raw || !raw.trim()) return defaults;
   const symbols = raw
     .split(",")
     .map((symbol) => symbol.trim().toUpperCase())
-    .filter((symbol) => /^[A-Z][A-Z0-9.]{0,9}$/.test(symbol));
+    .filter((symbol) => /^[A-Z][A-Z0-9.]{0,9}(\/[A-Z][A-Z0-9]{1,9})?$/.test(symbol));
   return [...new Set(symbols)].slice(0, 50);
 }

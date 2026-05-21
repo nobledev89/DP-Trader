@@ -81,6 +81,7 @@ export async function fetchAlpacaOrders(config) {
 }
 
 export async function fetchAlpacaLatestMarket(config, symbols) {
+  if (!symbols.length) return [];
   if (!hasAlpacaCredentials(config)) return null;
   const url = new URL(`${alpacaDataRoot(config)}/stocks/trades/latest`);
   url.searchParams.set("symbols", symbols.join(","));
@@ -106,6 +107,7 @@ export async function fetchAlpacaLatestMarket(config, symbols) {
 }
 
 export async function fetchAlpacaLatestQuotes(config, symbols) {
+  if (!symbols.length) return [];
   if (!hasAlpacaCredentials(config)) return null;
   const url = new URL(`${alpacaDataRoot(config)}/stocks/quotes/latest`);
   url.searchParams.set("symbols", symbols.join(","));
@@ -136,10 +138,72 @@ export async function fetchAlpacaLatestQuotes(config, symbols) {
 }
 
 export async function fetchAlpacaBars(config, symbols, { timeframe = "1Min", limit = 60 } = {}) {
+  if (!symbols.length) return {};
   if (!hasAlpacaCredentials(config)) return null;
   const result = await fetchBarsPage(config, symbols, { timeframe, limit, feed: alpacaBarsDataFeed(config) });
   if (Object.values(result).some((bars) => bars.length)) return result;
   return fetchRecentHistoricalBars(config, symbols, { timeframe, limit });
+}
+
+export async function fetchAlpacaLatestCryptoQuotes(config, symbols, { loc = "us" } = {}) {
+  if (!symbols.length) return [];
+  if (!hasAlpacaCredentials(config)) return null;
+  const url = new URL(`${alpacaDataBaseRoot()}/v1beta3/crypto/${loc}/latest/quotes`);
+  url.searchParams.set("symbols", symbols.join(","));
+  const response = await fetch(url, {
+    headers: alpacaHeaders(config)
+  });
+  if (!response.ok) {
+    throw new Error(`Alpaca crypto latest quote request failed: ${response.status}`);
+  }
+  const body = await response.json();
+  return Object.entries(body.quotes || {}).map(([symbol, quote]) => {
+    const bid = Number(quote.bp) || 0;
+    const ask = Number(quote.ap) || 0;
+    const mid = bid && ask ? Number(((bid + ask) / 2).toFixed(6)) : ask || bid;
+    return {
+      symbol,
+      price: mid,
+      tradePrice: mid,
+      bid,
+      ask,
+      bidSize: Number(quote.bs) || 0,
+      askSize: Number(quote.as) || 0,
+      quoteSpread: Number((ask - bid).toFixed(6)),
+      spreadPct: mid ? Number((((ask - bid) / mid) * 100).toFixed(4)) : 0,
+      vwap: mid,
+      changePct: 0,
+      relativeVolume: 1,
+      avgVolume: mid ? Math.round(mid * ((Number(quote.bs) || 0) + (Number(quote.as) || 0)) / 2) : 0,
+      updatedAt: quote.t || new Date().toISOString(),
+      assetClass: "crypto",
+      source: "alpaca_crypto"
+    };
+  });
+}
+
+export async function fetchAlpacaCryptoBars(config, symbols, { timeframe = "1Min", limit = 60, loc = "us" } = {}) {
+  if (!symbols.length) return {};
+  if (!hasAlpacaCredentials(config)) return null;
+  const end = new Date();
+  const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+  const entries = await Promise.all(symbols.map(async (symbol) => {
+    const url = new URL(`${alpacaDataBaseRoot()}/v1beta3/crypto/${loc}/bars`);
+    url.searchParams.set("symbols", symbol);
+    url.searchParams.set("timeframe", timeframe);
+    url.searchParams.set("start", start.toISOString());
+    url.searchParams.set("end", end.toISOString());
+    url.searchParams.set("limit", String(limit));
+    url.searchParams.set("sort", "desc");
+    const response = await fetch(url, {
+      headers: alpacaHeaders(config)
+    });
+    if (!response.ok) return [symbol, []];
+    const body = await response.json();
+    const bars = normalizeBarsBySymbol(body.bars || {})[symbol] || [];
+    return [symbol, bars.slice().reverse()];
+  }));
+  return Object.fromEntries(entries);
 }
 
 export async function submitAlpacaBracketOrder(config, signal, risk) {
@@ -184,10 +248,49 @@ export async function submitAlpacaBracketOrder(config, signal, risk) {
 }
 
 export async function submitAlpacaAutoOrder(config, signal, risk, now = new Date()) {
+  if (signal.assetClass === "crypto") {
+    return submitAlpacaCryptoLimitOrder(config, signal, risk);
+  }
   if (config.risk?.allowExtendedHours && !isRegularMarketHours(now) && isExtendedHoursEligibleTime(now)) {
     return submitAlpacaExtendedLimitOrder(config, signal, risk);
   }
   return submitAlpacaBracketOrder(config, signal, risk);
+}
+
+export async function submitAlpacaCryptoLimitOrder(config, signal, risk) {
+  assertPaperTradingEndpoint(config);
+  if (!hasAlpacaCredentials(config)) {
+    const missing = describeMissingAlpacaCredentials(config);
+    throw new Error(`Alpaca paper credentials are missing (${missing.join(", ")})`);
+  }
+  if (signal.direction !== "long") {
+    throw new Error(`Crypto auto trading only supports long spot entries (${signal.symbol})`);
+  }
+
+  const payload = {
+    symbol: signal.symbol,
+    qty: String(risk.shares),
+    side: "buy",
+    type: "limit",
+    time_in_force: "gtc",
+    limit_price: String(marketableLimitPrice(signal, signal.quote))
+  };
+
+  const response = await fetch(`${alpacaApiRoot(config)}/orders`, {
+    method: "POST",
+    headers: {
+      ...alpacaHeaders(config),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = body.message || body.error || `Alpaca crypto order request failed: ${response.status}`;
+    throw new Error(message);
+  }
+  return body;
 }
 
 export async function submitAlpacaExtendedLimitOrder(config, signal, risk) {
@@ -345,6 +448,10 @@ export function alpacaApiRoot(config) {
 
 export function alpacaDataRoot(config) {
   return "https://data.alpaca.markets/v2";
+}
+
+function alpacaDataBaseRoot() {
+  return "https://data.alpaca.markets";
 }
 
 function alpacaMarketDataFeed(config, now = new Date()) {
