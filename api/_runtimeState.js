@@ -43,7 +43,11 @@ export async function ensureBootstrap() {
 }
 
 export async function refreshStoredIntegrationKeys() {
-  await bootstrapPersistedIntegrationKeys(globalState.store);
+  try {
+    await bootstrapPersistedIntegrationKeys(globalState.store);
+  } catch (error) {
+    console.warn(`Integration key refresh skipped: ${error.message}`);
+  }
 }
 
 export async function refreshStoredIntegrationKeysStrict() {
@@ -57,7 +61,11 @@ export function configForStore(config, store) {
 }
 
 export async function refreshStoredRiskSettings() {
-  await bootstrapPersistedRiskSettings(globalState.store);
+  try {
+    await bootstrapPersistedRiskSettings(globalState.store);
+  } catch (error) {
+    console.warn(`Risk settings refresh skipped: ${error.message}`);
+  }
 }
 
 export async function refreshStoredRiskSettingsStrict() {
