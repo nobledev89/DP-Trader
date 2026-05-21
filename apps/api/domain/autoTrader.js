@@ -243,7 +243,7 @@ function normalizeAutoOrder(alpacaOrder, candidate) {
     symbol: candidate.signal.symbol,
     side: candidate.signal.direction === "long" ? "buy" : "sell",
     qty: candidate.risk.shares,
-    type: alpacaOrder.order_class === "" || alpacaOrder.extended_hours === true ? "alpaca_paper_extended_limit" : "alpaca_paper_bracket",
+    type: candidate.signal.assetClass === "crypto" ? "alpaca_paper_crypto_limit" : alpacaOrder.order_class === "" || alpacaOrder.extended_hours === true ? "alpaca_paper_extended_limit" : "alpaca_paper_bracket",
     limitPrice: Number(alpacaOrder.limit_price || marketableLimitPrice(candidate.signal, candidate.signal.quote)),
     stopPrice: candidate.signal.stopPrice,
     targetPrice: candidate.signal.targetPrice,
