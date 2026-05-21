@@ -172,7 +172,7 @@ function mockAlpacaFetch({ onOrderPost, onOrderCancel, onPositionClose, rejectLl
   };
 }
 
-const SYMBOL_LIST = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "AMD", "META", "AMZN", "GOOGL"];
+const SYMBOL_LIST = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "AMD", "META", "AMZN", "GOOGL", "IBIT", "ETHE", "GLD", "SLV", "USO", "TLT", "UUP"];
 
 test("does not auto trade when an active order already exists", async () => {
   const store = createStore();

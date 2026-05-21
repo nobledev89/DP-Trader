@@ -3,22 +3,23 @@ import { generateMarketSnapshot } from "./strategyEngine.js";
 import { computeIndicators } from "./indicators.js";
 import { appendEvent } from "../store.js";
 
-export const DEFAULT_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "AMD", "META", "AMZN", "GOOGL"];
+export const DEFAULT_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "AMD", "META", "AMZN", "GOOGL", "IBIT", "ETHE", "GLD", "SLV", "USO", "TLT", "UUP"];
 
 export async function loadMarketSnapshot(config, store, now = new Date()) {
-  const fallback = generateMarketSnapshot(now);
+  const symbols = config.symbols?.length ? config.symbols : DEFAULT_SYMBOLS;
+  const fallback = generateMarketSnapshot(now, symbols);
   try {
     const [trades, quotes, bars] = await Promise.all([
-      fetchAlpacaLatestMarket(config, DEFAULT_SYMBOLS),
-      fetchAlpacaLatestQuotes(config, DEFAULT_SYMBOLS).catch(() => null),
-      fetchAlpacaBars(config, DEFAULT_SYMBOLS, { timeframe: "1Min", limit: 60 }).catch(() => null)
+      fetchAlpacaLatestMarket(config, symbols),
+      fetchAlpacaLatestQuotes(config, symbols).catch(() => null),
+      fetchAlpacaBars(config, symbols, { timeframe: "1Min", limit: 60 }).catch(() => null)
     ]);
     if (!trades?.length) return markSource(fallback, "simulated");
 
     const fallbackBySymbol = new Map(fallback.map((bar) => [bar.symbol, bar]));
     const quoteBySymbol = new Map((quotes || []).map((quote) => [quote.symbol, quote]));
 
-    return DEFAULT_SYMBOLS.map((symbol) => {
+    return symbols.map((symbol) => {
       const trade = trades.find((bar) => bar.symbol === symbol);
       if (!trade) return { ...fallbackBySymbol.get(symbol), source: "simulated_fallback" };
 

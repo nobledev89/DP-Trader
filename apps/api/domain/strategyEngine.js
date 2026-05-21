@@ -1,8 +1,8 @@
-const SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "AMD", "META", "AMZN", "GOOGL"];
+const SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "AMD", "META", "AMZN", "GOOGL", "IBIT", "ETHE", "GLD", "SLV", "USO", "TLT", "UUP"];
 
-export function generateMarketSnapshot(now = new Date()) {
+export function generateMarketSnapshot(now = new Date(), symbols = SYMBOLS) {
   const tick = now.getTime() / 1000;
-  return SYMBOLS.map((symbol, index) => {
+  return symbols.map((symbol, index) => {
     const base = 92 + index * 23;
     const wave = Math.sin(tick / 17 + index) * 1.8;
     const pulse = Math.cos(tick / 5 + index * 0.71) * 0.28;

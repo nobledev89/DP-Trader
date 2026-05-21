@@ -8,11 +8,13 @@ export function readConfig(env = process.env) {
 
   const tradingMode = env.TRADING_MODE === "live" ? "live" : "paper";
   const liveTradingEnabled = env.ENABLE_LIVE_TRADING === "true";
+  const symbols = parseSymbols(env.SYMBOLS);
 
   return {
     port: number("PORT", 8787),
     tradingMode,
     liveTradingEnabled,
+    symbols,
     alpaca: {
       key: env.ALPACA_API_KEY || "",
       secret: env.ALPACA_SECRET_KEY || "",
@@ -52,4 +54,17 @@ export function readConfig(env = process.env) {
 
 export function assertLiveTradingAllowed(config) {
   return config.tradingMode === "live" && config.liveTradingEnabled;
+}
+
+function parseSymbols(raw) {
+  const defaults = [
+    "SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "AMD", "META", "AMZN", "GOOGL",
+    "IBIT", "ETHE", "GLD", "SLV", "USO", "TLT", "UUP"
+  ];
+  if (!raw || !raw.trim()) return defaults;
+  const symbols = raw
+    .split(",")
+    .map((symbol) => symbol.trim().toUpperCase())
+    .filter((symbol) => /^[A-Z][A-Z0-9.]{0,9}$/.test(symbol));
+  return [...new Set(symbols)].slice(0, 50);
 }
