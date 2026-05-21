@@ -26,6 +26,7 @@ export function evaluateRisk({ signal, account, state, config, now = new Date() 
   const rewardRisk = Math.abs(signal.targetPrice - signal.entryPrice) / Math.abs(signal.entryPrice - signal.stopPrice);
   const afterCutoff = isAfterNoNewTradesCutoff(now);
   const afterForceFlat = isAfterForceFlatTime(now);
+  const allowExtendedHoursNow = Boolean(config.allowExtendedHours) && isExtendedHoursEligibleTime(now);
 
   if (state.killSwitch) reasons.push("kill_switch_enabled");
   if (dailyLossPct >= config.maxDailyLossPct) reasons.push("daily_loss_limit_reached");
@@ -37,8 +38,8 @@ export function evaluateRisk({ signal, account, state, config, now = new Date() 
   if ((signal.avgVolume || 0) < config.minAvgVolume) reasons.push("average_volume_too_low");
   if (rewardRisk < config.minRewardRisk) reasons.push("reward_risk_too_low");
   if (state.dataStale) reasons.push("market_data_stale");
-  if (afterCutoff) reasons.push("after_new_trade_cutoff");
-  if (afterForceFlat) reasons.push("after_force_flat_time");
+  if (!allowExtendedHoursNow && afterCutoff) reasons.push("after_new_trade_cutoff");
+  if (!allowExtendedHoursNow && afterForceFlat) reasons.push("after_force_flat_time");
 
   const riskSizing = calculatePositionSize({
     equity: account.equity,
@@ -73,14 +74,35 @@ export function isAfterForceFlatTime(now) {
   return isAfterEasternTime(now, 15, 55);
 }
 
+export function isRegularMarketHours(now = new Date()) {
+  const { day, minutes } = easternParts(now);
+  return day >= 1 && day <= 5 && minutes >= (9 * 60 + 30) && minutes < (16 * 60);
+}
+
+export function isExtendedHoursEligibleTime(now = new Date()) {
+  const { day, minutes } = easternParts(now);
+  if (day === 0) return minutes >= 20 * 60;
+  if (day >= 1 && day <= 4) return true;
+  if (day === 5) return minutes < 20 * 60;
+  return false;
+}
+
 function isAfterEasternTime(now, cutoffHour, cutoffMinute) {
+  return easternParts(now).minutes >= (cutoffHour * 60 + cutoffMinute);
+}
+
+function easternParts(now) {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
+    weekday: "short",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false
   });
   const parts = Object.fromEntries(formatter.formatToParts(now).map((part) => [part.type, part.value]));
-  const minutes = Number(parts.hour) * 60 + Number(parts.minute);
-  return minutes >= (cutoffHour * 60 + cutoffMinute);
+  const days = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return {
+    day: days[parts.weekday] ?? 0,
+    minutes: Number(parts.hour) * 60 + Number(parts.minute)
+  };
 }

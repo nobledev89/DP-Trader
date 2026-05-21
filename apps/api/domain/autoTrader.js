@@ -2,7 +2,7 @@ import { scoreSignal, scoreSignalWithLlm } from "./aiScorer.js";
 import { evaluateRisk } from "./riskManager.js";
 import { loadMarketSnapshot } from "./marketData.js";
 import { buildSignals } from "./strategyEngine.js";
-import { marketableLimitPrice, submitAlpacaBracketOrder } from "../services/alpacaClient.js";
+import { marketableLimitPrice, submitAlpacaAutoOrder } from "../services/alpacaClient.js";
 import { appendEvent } from "../store.js";
 
 const DEFAULT_MIN_AUTO_CONFIDENCE = 0.62;
@@ -74,7 +74,7 @@ export async function runAutoTradeCycle({ config, store, now = new Date() }) {
     return { status: "no_trade", reason: "ai_rejected_all_candidates", minAutoConfidence };
   }
 
-  const alpacaOrder = await submitAlpacaBracketOrder(config, chosen.signal, chosen.risk);
+  const alpacaOrder = await submitAlpacaAutoOrder(config, chosen.signal, chosen.risk, now);
   const order = normalizeAutoOrder(alpacaOrder, chosen);
   store.orders.unshift(order);
   appendEvent(
@@ -142,7 +142,7 @@ function normalizeAutoOrder(alpacaOrder, candidate) {
     symbol: candidate.signal.symbol,
     side: candidate.signal.direction === "long" ? "buy" : "sell",
     qty: candidate.risk.shares,
-    type: "alpaca_paper_bracket",
+    type: alpacaOrder.order_class === "" || alpacaOrder.extended_hours === true ? "alpaca_paper_extended_limit" : "alpaca_paper_bracket",
     limitPrice: Number(alpacaOrder.limit_price || marketableLimitPrice(candidate.signal, candidate.signal.quote)),
     stopPrice: candidate.signal.stopPrice,
     targetPrice: candidate.signal.targetPrice,

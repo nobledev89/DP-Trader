@@ -9,7 +9,8 @@ const RISK_SETTING_FIELDS = {
   minAvgVolume: { label: "Minimum average volume", min: 0, max: 1000000000, step: 1000, integer: true },
   maxExecutionErrors: { label: "Max execution errors", min: 0, max: 100, step: 1, integer: true },
   maxPositionValuePct: { label: "Max position value %", min: 0, max: 100, step: 0.1 },
-  minAutoConfidence: { label: "AI confidence threshold", min: 0.1, max: 0.99, step: 0.01 }
+  minAutoConfidence: { label: "AI confidence threshold", min: 0.1, max: 0.99, step: 0.01 },
+  allowExtendedHours: { label: "Allow 24/5 extended hours", type: "boolean" }
 };
 
 export function riskSettingDefinitions() {
@@ -43,6 +44,11 @@ export function sanitizeRiskOverrides(input = {}, defaults = {}) {
   const overrides = {};
   for (const [key, meta] of Object.entries(RISK_SETTING_FIELDS)) {
     if (!(key in input)) continue;
+    if (meta.type === "boolean") {
+      const normalized = input[key] === true || input[key] === "true" || input[key] === "on";
+      if (normalized !== Boolean(defaults[key])) overrides[key] = normalized;
+      continue;
+    }
     const value = Number(input[key]);
     if (!Number.isFinite(value)) {
       throw new Error(`${meta.label} must be a number`);

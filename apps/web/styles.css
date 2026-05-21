@@ -437,6 +437,16 @@ h2 { font-size: 15px; font-weight: 700; margin: 0 0 12px; padding: 16px 18px 0; 
   width: 100%; background: var(--bg-2); border: 1px solid var(--line); color: var(--text);
   border-radius: 8px; padding: 9px 11px;
 }
+.setting-card .toggle-row {
+  align-items: center;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  justify-content: flex-start;
+  padding: 9px 11px;
+}
+.setting-card .toggle-row input { width: auto; }
 
 @media (max-width: 1100px) {
   .trading-layout { grid-template-columns: 1fr; }

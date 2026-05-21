@@ -38,7 +38,8 @@ export function readConfig(env = process.env) {
       minAvgVolume: number("MIN_AVG_VOLUME", 2000000),
       maxExecutionErrors: number("MAX_EXECUTION_ERRORS", 3),
       maxPositionValuePct: number("MAX_POSITION_VALUE_PCT", 20),
-      minAutoConfidence: number("MIN_AUTO_CONFIDENCE", 0.62)
+      minAutoConfidence: number("MIN_AUTO_CONFIDENCE", 0.62),
+      allowExtendedHours: env.ALLOW_EXTENDED_HOURS === "true"
     }
   };
 }

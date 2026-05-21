@@ -76,6 +76,18 @@ test("rejects after force-flat time and repeated execution errors", () => {
   assert.ok(decision.reasonCodes.includes("execution_error_circuit_breaker"));
 });
 
+test("allows 24/5 extended hours to bypass regular-session cutoffs", () => {
+  const decision = evaluateRisk({
+    signal: { ...baseSignal, avgVolume: 3000000 },
+    account: baseAccount,
+    state: baseState,
+    config: { ...baseConfig, allowExtendedHours: true },
+    now: new Date("2026-05-21T21:00:00-04:00")
+  });
+  assert.equal(decision.decision, "approved");
+  assert.equal(decision.reasonCodes.includes("after_force_flat_time"), false);
+});
+
 test("rejects low average volume signals", () => {
   const decision = evaluateRisk({
     signal: { ...baseSignal, avgVolume: 100000 },

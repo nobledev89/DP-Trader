@@ -1,3 +1,5 @@
+import { isExtendedHoursEligibleTime, isRegularMarketHours } from "../domain/riskManager.js";
+
 export function hasAlpacaCredentials(config) {
   return Boolean(config.alpaca?.key && config.alpaca?.secret);
 }
@@ -82,7 +84,7 @@ export async function fetchAlpacaLatestMarket(config, symbols) {
   if (!hasAlpacaCredentials(config)) return null;
   const url = new URL(`${alpacaDataRoot(config)}/stocks/trades/latest`);
   url.searchParams.set("symbols", symbols.join(","));
-  url.searchParams.set("feed", config.alpaca.dataFeed || "iex");
+  url.searchParams.set("feed", alpacaMarketDataFeed(config));
   const response = await fetch(url, {
     headers: alpacaHeaders(config)
   });
@@ -107,7 +109,7 @@ export async function fetchAlpacaLatestQuotes(config, symbols) {
   if (!hasAlpacaCredentials(config)) return null;
   const url = new URL(`${alpacaDataRoot(config)}/stocks/quotes/latest`);
   url.searchParams.set("symbols", symbols.join(","));
-  url.searchParams.set("feed", config.alpaca.dataFeed || "iex");
+  url.searchParams.set("feed", alpacaMarketDataFeed(config));
   const response = await fetch(url, {
     headers: alpacaHeaders(config)
   });
@@ -139,7 +141,7 @@ export async function fetchAlpacaBars(config, symbols, { timeframe = "1Min", lim
   url.searchParams.set("symbols", symbols.join(","));
   url.searchParams.set("timeframe", timeframe);
   url.searchParams.set("limit", String(limit));
-  url.searchParams.set("feed", config.alpaca.dataFeed || "iex");
+  url.searchParams.set("feed", alpacaMarketDataFeed(config));
   url.searchParams.set("adjustment", "raw");
   const response = await fetch(url, {
     headers: alpacaHeaders(config)
@@ -204,6 +206,47 @@ export async function submitAlpacaBracketOrder(config, signal, risk) {
   return body;
 }
 
+export async function submitAlpacaAutoOrder(config, signal, risk, now = new Date()) {
+  if (config.risk?.allowExtendedHours && !isRegularMarketHours(now) && isExtendedHoursEligibleTime(now)) {
+    return submitAlpacaExtendedLimitOrder(config, signal, risk);
+  }
+  return submitAlpacaBracketOrder(config, signal, risk);
+}
+
+export async function submitAlpacaExtendedLimitOrder(config, signal, risk) {
+  assertPaperTradingEndpoint(config);
+  if (!hasAlpacaCredentials(config)) {
+    const missing = describeMissingAlpacaCredentials(config);
+    throw new Error(`Alpaca paper credentials are missing (${missing.join(", ")})`);
+  }
+
+  const payload = {
+    symbol: signal.symbol,
+    qty: String(risk.shares),
+    side: signal.direction === "long" ? "buy" : "sell",
+    type: "limit",
+    time_in_force: "day",
+    limit_price: String(marketableLimitPrice(signal, signal.quote)),
+    extended_hours: true
+  };
+
+  const response = await fetch(`${alpacaApiRoot(config)}/orders`, {
+    method: "POST",
+    headers: {
+      ...alpacaHeaders(config),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = body.message || body.error || `Alpaca extended-hours order request failed: ${response.status}`;
+    throw new Error(message);
+  }
+  return body;
+}
+
 export function marketableLimitPrice(signal, quote) {
   const bufferBps = 0.0025;
   if (quote && Number(quote.ask) > 0 && Number(quote.bid) > 0) {
@@ -251,6 +294,13 @@ export function alpacaApiRoot(config) {
 
 export function alpacaDataRoot(config) {
   return "https://data.alpaca.markets/v2";
+}
+
+function alpacaMarketDataFeed(config, now = new Date()) {
+  if (config.risk?.allowExtendedHours && !isRegularMarketHours(now) && isExtendedHoursEligibleTime(now)) {
+    return config.alpaca.extendedDataFeed || "overnight";
+  }
+  return config.alpaca.dataFeed || "iex";
 }
 
 export function assertPaperTradingEndpoint(config) {

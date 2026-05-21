@@ -539,6 +539,17 @@ function renderRiskSettings(settings) {
   grid.innerHTML = Object.entries(fields).map(([key, meta]) => {
     const value = values[key] ?? defaults[key] ?? "";
     const changed = Number(value) !== Number(defaults[key]);
+    if (meta.type === "boolean") {
+      const checked = Boolean(value);
+      const defaultChecked = Boolean(defaults[key]);
+      return `
+        <div class="setting-card">
+          <label>${escapeHtml(meta.label || title(key))}<span class="${checked !== defaultChecked ? "up" : "muted"}">${checked !== defaultChecked ? "custom" : "default"}</span></label>
+          <label class="toggle-row"><input type="checkbox" ${checked ? "checked" : ""} data-risk-field="${key}"><span>${checked ? "Enabled" : "Disabled"}</span></label>
+          <small class="muted">Default ${defaultChecked ? "enabled" : "disabled"}</small>
+        </div>
+      `;
+    }
     return `
       <div class="setting-card">
         <label>${escapeHtml(meta.label || title(key))}<span class="${changed ? "up" : "muted"}">${changed ? "custom" : "default"}</span></label>
@@ -554,7 +565,7 @@ async function saveRiskSettings(event) {
   showRiskSettingsMessage("", "");
   const risk = {};
   document.querySelectorAll("[data-risk-field]").forEach((input) => {
-    risk[input.dataset.riskField] = input.value;
+    risk[input.dataset.riskField] = input.type === "checkbox" ? input.checked : input.value;
   });
   try {
     const result = await postJson("/api/settings/risk", { risk });
