@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { alpacaApiRoot, assertPaperTradingEndpoint, cancelAllAlpacaOrders, closeAllAlpacaPositions, fetchAlpacaAccount, fetchAlpacaBars, fetchAlpacaCryptoBars, fetchAlpacaLatestCryptoQuotes, fetchAlpacaLatestMarket, marketableLimitPrice, submitAlpacaAutoOrder } from "../apps/api/services/alpacaClient.js";
+import { alpacaApiRoot, assertPaperTradingEndpoint, cancelAllAlpacaOrders, closeAllAlpacaPositions, closeAlpacaPosition, fetchAlpacaAccount, fetchAlpacaBars, fetchAlpacaCryptoBars, fetchAlpacaLatestCryptoQuotes, fetchAlpacaLatestMarket, marketableLimitPrice, submitAlpacaAutoOrder } from "../apps/api/services/alpacaClient.js";
 
 test("normalizes Alpaca paper base URL with or without v2 suffix", () => {
   assert.equal(alpacaApiRoot({ alpaca: { baseUrl: "https://paper-api.alpaca.markets" } }), "https://paper-api.alpaca.markets/v2");
@@ -155,6 +155,30 @@ test("uses simple extended-hours limit orders outside regular session", async ()
   }
 });
 
+test("closes crypto positions with an IOC market order", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    const body = JSON.parse(options.body);
+    assert.equal(url, "https://paper-api.alpaca.markets/v2/orders");
+    assert.equal(body.symbol, "BTC/USD");
+    assert.equal(body.qty, "0.02");
+    assert.equal(body.side, "sell");
+    assert.equal(body.type, "market");
+    assert.equal(body.time_in_force, "ioc");
+    return Response.json({ id: "crypto-close", status: "accepted" });
+  };
+  try {
+    const result = await closeAlpacaPosition(
+      { alpaca: { key: "key", secret: "secret", baseUrl: "https://paper-api.alpaca.markets" }, risk: { allowExtendedHours: true } },
+      { symbol: "BTCUSD", qty: 0.02, side: "long" },
+      new Date("2026-05-21T21:00:00-04:00")
+    );
+    assert.equal(result.id, "crypto-close");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("fetches Alpaca crypto quotes and bars", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
@@ -202,7 +226,7 @@ test("submits crypto entries as fractional spot limit orders", async () => {
     assert.equal(body.symbol, "BTC/USD");
     assert.equal(body.qty, "0.00123456");
     assert.equal(body.side, "buy");
-    assert.equal(body.time_in_force, "day");
+    assert.equal(body.time_in_force, "gtc");
     assert.equal(body.order_class, undefined);
     return Response.json({ id: "crypto-order", status: "accepted", limit_price: body.limit_price });
   };

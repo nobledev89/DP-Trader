@@ -272,7 +272,7 @@ export async function submitAlpacaCryptoLimitOrder(config, signal, risk) {
     qty: String(risk.shares),
     side: "buy",
     type: "limit",
-    time_in_force: config.alpaca.cryptoTimeInForce || "day",
+    time_in_force: config.alpaca.cryptoTimeInForce || "gtc",
     limit_price: String(marketableLimitPrice(signal, signal.quote))
   };
 
@@ -379,6 +379,9 @@ export async function cancelAlpacaOrdersForSymbol(config, symbol, orders = []) {
 export async function closeAlpacaPosition(config, position, now = new Date()) {
   assertPaperTradingEndpoint(config);
   if (!hasAlpacaCredentials(config)) throw new Error("Alpaca paper credentials are missing");
+  if (isCryptoPosition(position)) {
+    return submitAlpacaCryptoPositionClose(config, position);
+  }
   if (config.risk?.allowExtendedHours && !isRegularMarketHours(now) && isExtendedHoursEligibleTime(now)) {
     return submitAlpacaExtendedPositionClose(config, position);
   }
@@ -389,6 +392,32 @@ export async function closeAlpacaPosition(config, position, now = new Date()) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok && response.status !== 404) {
     const message = body.message || body.error || `Alpaca close ${position.symbol} position request failed: ${response.status}`;
+    throw new Error(message);
+  }
+  return body;
+}
+
+async function submitAlpacaCryptoPositionClose(config, position) {
+  const qty = Math.abs(Number(position.qty || 0));
+  if (!qty) throw new Error(`Cannot close ${position.symbol}: position quantity is zero`);
+  const side = position.side === "short" || Number(position.qty) < 0 ? "buy" : "sell";
+  const response = await fetch(`${alpacaApiRoot(config)}/orders`, {
+    method: "POST",
+    headers: {
+      ...alpacaHeaders(config),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      symbol: normalizeCryptoOrderSymbol(position.symbol),
+      qty: String(qty),
+      side,
+      type: "market",
+      time_in_force: "ioc"
+    })
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = body.message || body.error || `Alpaca crypto close ${position.symbol} order failed: ${response.status}`;
     throw new Error(message);
   }
   return body;
@@ -452,6 +481,18 @@ export function alpacaDataRoot(config) {
 
 function alpacaDataBaseRoot() {
   return "https://data.alpaca.markets";
+}
+
+function isCryptoPosition(position) {
+  const symbol = String(position?.symbol || "").toUpperCase();
+  return symbol.includes("/") || ["BTCUSD", "ETHUSD", "SOLUSD"].includes(symbol);
+}
+
+function normalizeCryptoOrderSymbol(symbol) {
+  const normalized = String(symbol || "").toUpperCase();
+  if (normalized.includes("/")) return normalized;
+  if (normalized.endsWith("USD")) return `${normalized.slice(0, -3)}/USD`;
+  return normalized;
 }
 
 function alpacaMarketDataFeed(config, now = new Date()) {
